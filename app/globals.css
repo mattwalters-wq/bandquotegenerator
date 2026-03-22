@@ -1,9 +1,9 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+* { margin: 0; padding: 0; box-sizing: border-box; }
 
-* { box-sizing: border-box; }
 body { background: #0f172a; font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; }
+
 ::-webkit-scrollbar { width: 6px; }
+
 ::-webkit-scrollbar-track { background: transparent; }
+
 ::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
