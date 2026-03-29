@@ -36,7 +36,12 @@ export default function EditorPage() {
   const updateShow = (idx, field, value) => {
     setForm((prev) => {
       const shows = [...prev.shows];
-      shows[idx] = { ...shows[idx], [field]: value };
+      const updated = { ...shows[idx], [field]: value };
+      if (field === "feeType") {
+        if (value === "local") updated.performanceFee = DEFAULT_VALUES.localFee;
+        else if (value === "interstate") updated.performanceFee = DEFAULT_VALUES.interstateFee;
+      }
+      shows[idx] = updated;
       return { ...prev, shows };
     });
   };
@@ -75,22 +80,26 @@ export default function EditorPage() {
   const handleReset = () => setForm(INITIAL_FORM);
 
   const handleExportPDF = async () => {
-    if (!previewRef.current || exporting) return;
+    if (exporting) return;
     setExporting(true);
     try {
-      const html2canvas = (await import("html2canvas")).default;
-      const { jsPDF } = await import("jspdf");
-      const canvas = await html2canvas(previewRef.current, { scale: 2, backgroundColor: "#1a1a2e", useCORS: true });
-      const imgData = canvas.toDataURL("image/png");
-      const pdf = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
-      const pageW = pdf.internal.pageSize.getWidth();
-      const pageH = pdf.internal.pageSize.getHeight();
-      const imgW = pageW;
-      const imgH = (canvas.height * imgW) / canvas.width;
-      pdf.addImage(imgData, "PNG", 0, 0, imgW, Math.min(imgH, pageH));
+      const res = await fetch("/api/generate-pdf", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ form }),
+      });
+      if (!res.ok) throw new Error("PDF generation failed");
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
       const engName = form.shows.map((s) => s.engagement || "Untitled").join("_").replace(/\s+/g, "_");
-      pdf.save("Emma_Donovan_-_Rate_Card_-_" + engName + ".pdf");
-    } catch (e) { console.error("PDF export error:", e); alert("PDF export failed."); }
+      a.href = url;
+      a.download = "Emma_Donovan_-_Rate_Card_-_" + engName + ".pdf";
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (e) { console.error("PDF export error:", e); alert("PDF export failed. Please try again."); }
     setExporting(false);
   };
 
@@ -206,6 +215,13 @@ export default function EditorPage() {
                   <FG label="Format"><select style={sS} value={show.format} onChange={(e) => updateShow(idx, "format", e.target.value)}>{FORMAT_OPTIONS.map((f) => <option key={f} value={f}>{f}</option>)}</select></FG>
                 </div>
                 <FG label="Repertoire (optional)"><input style={iS} value={show.repertoire} onChange={(e) => updateShow(idx, "repertoire", e.target.value)} placeholder="e.g. Take Me To The River" /></FG>
+                <FG label="Fee Type">
+                  <select style={sS} value={show.feeType || "interstate"} onChange={(e) => updateShow(idx, "feeType", e.target.value)}>
+                    <option value="local">Local ($450)</option>
+                    <option value="interstate">Interstate ($550)</option>
+                    <option value="custom">Custom</option>
+                  </select>
+                </FG>
                 <FG label="Fee for this show"><input type="number" style={iS} value={show.performanceFee} onChange={(e) => updateShow(idx, "performanceFee", e.target.value)} /></FG>
                 <label style={cL}><input type="checkbox" checked={show.hasMdFee} onChange={(e) => updateShow(idx, "hasMdFee", e.target.checked)} /> Music Director fee</label>
                 {show.hasMdFee && <FG label="MD Fee"><input type="number" style={iS} value={show.mdFee} onChange={(e) => updateShow(idx, "mdFee", e.target.value)} /></FG>}
