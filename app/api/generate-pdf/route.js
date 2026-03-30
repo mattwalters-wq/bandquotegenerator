@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { jsPDF } from "jspdf";
 
 const DARK_BG = [26, 26, 46];
 const ACCENT = [233, 69, 96];
@@ -43,7 +44,6 @@ function wrapText(doc, text, maxWidth) {
 export async function POST(request) {
   try {
     const { form } = await request.json();
-    const { jsPDF } = await import("jspdf");
 
     const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
     const W = doc.internal.pageSize.getWidth();
