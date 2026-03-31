@@ -1,11 +1,11 @@
 "use client";
 import PasswordGate from "@/components/PasswordGate";
-import EditorPage from "@/components/EditorPage";
+import MainApp from "@/components/MainApp";
 
 export default function Home() {
   return (
     <PasswordGate>
-      <EditorPage />
+      <MainApp />
     </PasswordGate>
   );
 }
