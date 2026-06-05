@@ -2,6 +2,8 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { supabase } from "@/lib/supabase";
 import { COLORS, FONTS } from "@/lib/theme";
+import { useTheme, getSessionId } from "@/lib/useTheme";
+import QuickQuote from "@/components/QuickQuote";
 import {
   DEFAULT_VALUES, INITIAL_FORM, EMPTY_SHOW,
   SLOT_OPTIONS, FORMAT_OPTIONS, ACTIVITY_OPTIONS,
@@ -16,6 +18,8 @@ const cL = { display: "flex", alignItems: "center", gap: 8, fontSize: 13, color:
 const smallBtn = { padding: "4px 10px", borderRadius: 6, border: "1px solid " + COLORS.border, cursor: "pointer", background: "transparent", color: COLORS.creamDim, fontSize: 10, fontWeight: 600, fontFamily: FONTS.body };
 
 export default function MainApp() {
+  const { theme, toggle: toggleTheme } = useTheme();
+  const [view, setView] = useState("quick"); // quick (Emma mode) | pro (manager tools)
   const [form, setForm] = useState(INITIAL_FORM);
   const [saved, setSaved] = useState([]);
   const [activePanel, setActivePanel] = useState("chat"); // chat | editor | saved
@@ -41,6 +45,33 @@ export default function MainApp() {
 
   useEffect(() => { loadCards(); }, [loadCards]);
   useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [chatMessages]);
+
+  // Load the saved view preference (Quick Quote vs Pro) for this session. New
+  // sessions default to Quick Quote.
+  useEffect(() => {
+    const sid = getSessionId();
+    if (!sid) return;
+    (async () => {
+      try {
+        let saved = localStorage.getItem("bqg_view");
+        if (supabase) {
+          const { data } = await supabase.from("session_prefs").select("view").eq("session_id", sid).single();
+          if (data?.view) saved = data.view;
+        }
+        if (saved === "pro" || saved === "quick") setView(saved);
+      } catch (e) { /* default stays quick */ }
+    })();
+  }, []);
+
+  // Persist the view preference against the session in Supabase.
+  const changeView = (next) => {
+    setView(next);
+    const sid = getSessionId();
+    try { localStorage.setItem("bqg_view", next); } catch (e) {}
+    if (supabase && sid) {
+      supabase.from("session_prefs").upsert({ session_id: sid, view: next, updated_at: new Date().toISOString() }).then(() => {}, () => {});
+    }
+  };
 
   const update = (field, value) => setForm((prev) => ({ ...prev, [field]: value }));
   const updateShow = (idx, field, value) => {
@@ -144,24 +175,46 @@ export default function MainApp() {
   const { rows, total } = buildRows(form);
   const transportLines = buildTransportLines(form);
 
+  const isPro = view === "pro";
+
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100vh", background: COLORS.bgDeep, fontFamily: FONTS.body, color: COLORS.cream }}>
       {/* Header */}
-      <div style={{ background: COLORS.bgCard, borderBottom: "2px solid " + COLORS.gold, padding: "12px 20px", display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
-        <div>
-          <h1 style={{ fontFamily: FONTS.display, fontSize: 18, fontWeight: 700, margin: 0, color: COLORS.cream }}>Emma Donovan</h1>
-          <p style={{ fontSize: 11, color: COLORS.creamDim, letterSpacing: 1.2, textTransform: "uppercase" }}>Rate Card Generator</p>
+      <div style={{ background: COLORS.bgDeep, borderBottom: "1px solid " + COLORS.border, padding: "12px 18px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexShrink: 0, flexWrap: "wrap" }}>
+        <div style={{ display: "flex", alignItems: "baseline", gap: 10 }}>
+          <h1 style={{ fontFamily: FONTS.display, fontSize: 19, fontWeight: 700, margin: 0, color: COLORS.cream }}>Emma Donovan</h1>
+          <span style={{ fontSize: 10.5, color: COLORS.creamFaint, letterSpacing: 1.4, textTransform: "uppercase" }}>Band quotes</span>
         </div>
-        <div style={{ display: "flex", gap: 6 }}>
-          {[["chat", "AI Chat"], ["editor", "Editor"], ["saved", "Saved (" + saved.length + ")"]].map(([key, label]) => (
-            <button key={key} onClick={() => setActivePanel(key)} style={{
-              padding: "6px 14px", borderRadius: 8, border: "none", cursor: "pointer", fontSize: 12, fontWeight: 600, fontFamily: FONTS.body,
-              background: activePanel === key ? COLORS.gold : COLORS.bgInput, color: activePanel === key ? COLORS.bgDeep : COLORS.creamDim,
-            }}>{label}</button>
-          ))}
+        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+          {/* Quick Quote / Pro segmented control */}
+          <div style={{ display: "flex", background: COLORS.bgInput, borderRadius: 10, padding: 3, border: "1px solid " + COLORS.border }}>
+            {[["quick", "Quick Quote"], ["pro", "Pro"]].map(([key, label]) => (
+              <button key={key} onClick={() => changeView(key)} style={{
+                padding: "7px 14px", borderRadius: 8, border: "none", cursor: "pointer", fontSize: 12.5, fontWeight: 700, fontFamily: FONTS.body,
+                background: view === key ? COLORS.gold : "transparent", color: view === key ? COLORS.onGold : COLORS.creamDim,
+              }}>{label}</button>
+            ))}
+          </div>
+          {isPro && (
+            <div style={{ display: "flex", gap: 6 }}>
+              {[["chat", "AI Chat"], ["editor", "Editor"], ["saved", "Saved (" + saved.length + ")"]].map(([key, label]) => (
+                <button key={key} onClick={() => setActivePanel(key)} style={{
+                  padding: "6px 12px", borderRadius: 8, border: "1px solid " + COLORS.border, cursor: "pointer", fontSize: 12, fontWeight: 600, fontFamily: FONTS.body,
+                  background: activePanel === key ? COLORS.bgCard : "transparent", color: activePanel === key ? COLORS.gold : COLORS.creamDim,
+                }}>{label}</button>
+              ))}
+            </div>
+          )}
+          <button onClick={toggleTheme} aria-label="Toggle light or dark mode" style={{
+            width: 38, height: 38, borderRadius: 10, border: "1px solid " + COLORS.border, background: "transparent",
+            color: COLORS.creamDim, cursor: "pointer", fontSize: 16,
+          }}>{theme === "dark" ? "☀" : "☾"}</button>
         </div>
       </div>
 
+      {!isPro && <QuickQuote />}
+
+      {isPro && (
       <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
         {/* Left panel */}
         <div style={{ width: 400, flexShrink: 0, overflow: "auto", borderRight: "1px solid " + COLORS.border, background: COLORS.bgDeep, display: "flex", flexDirection: "column" }}>
@@ -174,7 +227,7 @@ export default function MainApp() {
                     <div style={{
                       maxWidth: "85%", padding: "10px 14px", borderRadius: 12,
                       background: msg.role === "user" ? COLORS.gold : COLORS.bgCard,
-                      color: msg.role === "user" ? COLORS.bgDeep : COLORS.cream,
+                      color: msg.role === "user" ? COLORS.onGold : COLORS.cream,
                       fontSize: 13, lineHeight: 1.5, whiteSpace: "pre-wrap",
                       border: msg.role === "assistant" ? "1px solid " + COLORS.border : "none",
                     }}>{msg.content}</div>
@@ -198,7 +251,7 @@ export default function MainApp() {
                 />
                 <button onClick={sendChat} disabled={chatLoading} style={{
                   padding: "0 18px", borderRadius: 8, border: "none", cursor: chatLoading ? "wait" : "pointer",
-                  background: COLORS.gold, color: COLORS.bgDeep, fontWeight: 700, fontSize: 13, fontFamily: FONTS.body,
+                  background: COLORS.gold, color: COLORS.onGold, fontWeight: 700, fontSize: 13, fontFamily: FONTS.body,
                   opacity: chatLoading ? 0.5 : 1, alignSelf: "flex-end", height: 38,
                 }}>Send</button>
               </div>
@@ -212,7 +265,7 @@ export default function MainApp() {
 
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 14 }}>
                 <SL>Shows ({form.shows.length})</SL>
-                <button onClick={addShow} style={{ padding: "4px 10px", borderRadius: 6, border: "none", cursor: "pointer", background: COLORS.gold, color: COLORS.bgDeep, fontSize: 11, fontWeight: 700, fontFamily: FONTS.body }}>+ Add Show</button>
+                <button onClick={addShow} style={{ padding: "4px 10px", borderRadius: 6, border: "none", cursor: "pointer", background: COLORS.gold, color: COLORS.onGold, fontSize: 11, fontWeight: 700, fontFamily: FONTS.body }}>+ Add Show</button>
               </div>
 
               {form.shows.map((show, idx) => (
@@ -257,7 +310,7 @@ export default function MainApp() {
               {form.transportType !== "flights_accom" && <label style={cL}><input type="checkbox" checked={form.hasAccommodation} onChange={(e) => update("hasAccommodation", e.target.checked)} /> Accommodation (overnight)</label>}
 
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginTop: 18, paddingBottom: 18 }}>
-                <button onClick={handleExportPDF} disabled={exporting} style={{ padding: "10px 0", borderRadius: 8, border: "none", cursor: exporting ? "wait" : "pointer", background: COLORS.gold, color: COLORS.bgDeep, fontWeight: 700, fontSize: 12, fontFamily: FONTS.body, opacity: exporting ? 0.5 : 1 }}>{exporting ? "Exporting..." : "Export PDF"}</button>
+                <button onClick={handleExportPDF} disabled={exporting} style={{ padding: "10px 0", borderRadius: 8, border: "none", cursor: exporting ? "wait" : "pointer", background: COLORS.gold, color: COLORS.onGold, fontWeight: 700, fontSize: 12, fontFamily: FONTS.body, opacity: exporting ? 0.5 : 1 }}>{exporting ? "Exporting..." : "Export PDF"}</button>
                 <button onClick={handleGenerateEmail} style={{ padding: "10px 0", borderRadius: 8, border: "none", cursor: "pointer", background: COLORS.bgInput, color: COLORS.gold, fontWeight: 700, fontSize: 12, fontFamily: FONTS.body, border: "1px solid " + COLORS.gold }}>Generate Email</button>
                 <button onClick={handleSave} style={{ padding: "10px 0", borderRadius: 8, border: "1px solid " + COLORS.border, cursor: "pointer", background: "transparent", color: COLORS.creamDim, fontWeight: 600, fontSize: 12, fontFamily: FONTS.body }}>Save</button>
                 <button onClick={handleReset} style={{ padding: "10px 0", borderRadius: 8, border: "1px solid " + COLORS.border, cursor: "pointer", background: "transparent", color: COLORS.creamFaint, fontWeight: 600, fontSize: 12, fontFamily: FONTS.body }}>Reset</button>
@@ -276,7 +329,7 @@ export default function MainApp() {
                       <p style={{ margin: "2px 0 0", fontSize: 11, color: COLORS.creamFaint }}>{entry.form_data?.shows?.length || 1} show(s)</p>
                     </div>
                     <div style={{ display: "flex", gap: 6 }}>
-                      <button onClick={() => handleLoad(entry)} style={{ padding: "5px 12px", borderRadius: 6, border: "none", cursor: "pointer", background: COLORS.gold, color: COLORS.bgDeep, fontSize: 11, fontWeight: 700, fontFamily: FONTS.body }}>Load</button>
+                      <button onClick={() => handleLoad(entry)} style={{ padding: "5px 12px", borderRadius: 6, border: "none", cursor: "pointer", background: COLORS.gold, color: COLORS.onGold, fontSize: 11, fontWeight: 700, fontFamily: FONTS.body }}>Load</button>
                       <button onClick={() => handleDelete(entry.id)} style={smallBtn}>Delete</button>
                     </div>
                   </div>
@@ -294,7 +347,7 @@ export default function MainApp() {
             {rightPanel === "email" && <button onClick={() => setRightPanel("preview")} style={smallBtn}>Back to Preview</button>}
             {rightPanel === "preview" && (
               <div style={{ display: "flex", gap: 6 }}>
-                <button onClick={handleExportPDF} disabled={exporting} style={{ ...smallBtn, background: COLORS.gold, color: COLORS.bgDeep, border: "none" }}>{exporting ? "..." : "Export PDF"}</button>
+                <button onClick={handleExportPDF} disabled={exporting} style={{ ...smallBtn, background: COLORS.gold, color: COLORS.onGold, border: "none" }}>{exporting ? "..." : "Export PDF"}</button>
                 <button onClick={handleGenerateEmail} style={{ ...smallBtn, color: COLORS.gold, borderColor: COLORS.gold }}>Email</button>
               </div>
             )}
@@ -307,7 +360,7 @@ export default function MainApp() {
               <p style={{ fontSize: 11, color: COLORS.creamFaint, marginBottom: 4 }}>BODY</p>
               <pre style={{ fontSize: 13, color: COLORS.creamDim, whiteSpace: "pre-wrap", lineHeight: 1.6, margin: 0, fontFamily: FONTS.body }}>{emailData.body}</pre>
               <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
-                <button onClick={handleCopyEmail} style={{ padding: "8px 16px", borderRadius: 8, border: "none", cursor: "pointer", background: copied ? COLORS.success : COLORS.gold, color: COLORS.bgDeep, fontWeight: 700, fontSize: 12, fontFamily: FONTS.body }}>{copied ? "Copied!" : "Copy to Clipboard"}</button>
+                <button onClick={handleCopyEmail} style={{ padding: "8px 16px", borderRadius: 8, border: "none", cursor: "pointer", background: copied ? COLORS.success : COLORS.gold, color: COLORS.onGold, fontWeight: 700, fontSize: 12, fontFamily: FONTS.body }}>{copied ? "Copied!" : "Copy to Clipboard"}</button>
                 <button onClick={handleMailto} style={{ padding: "8px 16px", borderRadius: 8, border: "1px solid " + COLORS.gold, cursor: "pointer", background: "transparent", color: COLORS.gold, fontWeight: 700, fontSize: 12, fontFamily: FONTS.body }}>Open in Mail</button>
               </div>
             </div>
@@ -318,6 +371,7 @@ export default function MainApp() {
           )}
         </div>
       </div>
+      )}
     </div>
   );
 }
@@ -366,7 +420,7 @@ function PreviewCard({ form, rows, total, transportLines }) {
               <span style={{ color: COLORS.cream }}>{formatCurrency(r.total)}</span>
             </div>
           ))}
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 64px 32px 72px", padding: "7px 10px", background: COLORS.gold, borderRadius: "0 0 6px 6px", fontWeight: 700, fontSize: 12, color: COLORS.bgDeep }}>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 64px 32px 72px", padding: "7px 10px", background: COLORS.gold, borderRadius: "0 0 6px 6px", fontWeight: 700, fontSize: 12, color: COLORS.onGold }}>
             <span>TOTAL</span><span></span><span></span><span>{formatCurrency(total)} <span style={{ fontWeight: 400, fontSize: 9 }}>GST excl</span></span>
           </div>
         </div>
@@ -375,7 +429,7 @@ function PreviewCard({ form, rows, total, transportLines }) {
         <PH>Conditions</PH>
         <CT>Upon acceptance, a tour schedule and charts will be prepared and distributed.</CT>
         <CT>Fees payable within 14 days of invoice date, following the performance.</CT>
-        <CT>Super at {form.superRate}% of show fee to nominated fund.</CT>
+        <CT>Super at {form.superRate}% of performance and rehearsal fees to nominated fund.</CT>
         <CT>Please add living allowance (per diem) to your invoice.</CT>
 
         <div style={{ height: 1, background: COLORS.border, margin: "12px 0" }} />

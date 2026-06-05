@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { jsPDF } from "jspdf";
+import { POLICY } from "@/lib/policy";
 
 const BG = [28, 20, 16];
 const CARD = [42, 31, 24];
@@ -140,32 +141,33 @@ export async function POST(request) {
     let total = 0;
 
     shows.forEach((show, i) => {
-      const fee = Number(show.performanceFee) || 550;
+      const fee = Number(show.performanceFee) || POLICY.showFee.interstate;
       const label = multiShow
         ? show.activity + " fee - " + (show.engagement || "Show " + (i + 1)) + " (" + (show.performanceDate || "TBD") + ")"
         : show.activity + " fee";
       rows.push([label, fee, 1, fee]);
       total += fee;
       if (show.hasMdFee) {
-        const md = Number(show.mdFee) || 225;
+        const md = Number(show.mdFee) || POLICY.mdFee.halfDay;
         rows.push([multiShow ? "Music Director - " + (show.engagement || "Show " + (i + 1)) : "Music Director fee", md, 1, md]);
         total += md;
       }
     });
 
     if (form.hasRehearsalFee) {
-      const rh = Number(form.rehearsalFee) || 225;
+      const rh = Number(form.rehearsalFee) || POLICY.rehearsal.halfDay;
       rows.push(["Rehearsal" + (form.rehearsalNote ? " - " + form.rehearsalNote : ""), rh, 1, rh]);
       total += rh;
     }
     if (form.hasTravelDay) {
-      const baseFee = Number(shows[0]?.performanceFee || 550);
-      const td = Math.round(baseFee * 0.5);
+      // Flat travel-day rate per lib/policy.js. Travel on a show day is included
+      // in the show fee, so only full non-show travel days are charged here.
+      const td = POLICY.travelDay;
       const travelDays = Number(form.travelDays) || 1;
-      rows.push(["Travel day (50% of show fee)", td, travelDays, td * travelDays]);
+      rows.push(["Travel day", td, travelDays, td * travelDays]);
       total += td * travelDays;
     }
-    const pd = Number(form.perDiem) || 89;
+    const pd = Number(form.perDiem) || POLICY.perDiem;
     const pdDays = Number(form.pdDays) || 1;
     rows.push(["Living allowance (per diem)", pd, pdDays, pd * pdDays]);
     total += pd * pdDays;
@@ -244,7 +246,7 @@ export async function POST(request) {
     [
       "Upon acceptance of this offer, a tour schedule and charts will be prepared and distributed.",
       "Fees are payable within 14 days of the invoice date, following the performance.",
-      "Superannuation contributions will be made at " + (form.superRate || 12) + "% of the show fee to the nominated fund.",
+      "Superannuation contributions will be made at " + (form.superRate || Math.round(POLICY.superRate * 100)) + "% of performance and rehearsal fees to the nominated fund.",
       "Please add the living allowance (per diem) to your invoice.",
     ].forEach((c) => {
       wrapText(doc, c, CW - 4).forEach((cl) => { doc.text(cl, M, y); y += 4.5; });
