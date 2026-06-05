@@ -1,20 +1,23 @@
 import { NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
-import { POLICY } from "@/lib/policy";
+import { POLICY, TRAVEL_DAY_RULE_TEXT } from "@/lib/policy";
 
-// Rates here are pulled verbatim from lib/policy.js (the single source of truth).
+// Rates AND the travel-day rule are injected from lib/policy.js (the single
+// source of truth) - nothing is duplicated or hand-edited here.
 const SYSTEM_PROMPT = `You are an AI assistant that helps create band rate cards for Emma Donovan's shows. You work for Matt, Emma's artist manager. These rate cards price the BAND Emma hires. Emma's own performance fee of $${POLICY.emmaFee} per show is handled separately in the P&L and is never part of a band rate card.
 
 KEY RATES (single source of truth - do not invent or alter):
 - Local engagements (Melbourne metro / VIC): $${POLICY.showFee.vic} per show per band member
 - Interstate and regional engagements: $${POLICY.showFee.interstate} per show per band member
-- Travel day: a flat $${POLICY.travelDay} per band member. Travel day trigger: a travel day is only payable for a full, non-show day that is consumed by required travel. Travel that happens on a show day is already included in the show fee and is NOT a separate travel day.
 - Per diem (living allowance): $${POLICY.perDiem} per band member, paid for overnight stays only
 - Music Director fee: $${POLICY.mdFee.halfDay} (half day) or $${POLICY.mdFee.fullDay} (full day) or custom
 - Rehearsal fee: $${POLICY.rehearsal.halfDay} (half day) or $${POLICY.rehearsal.fullDay} (full day)
 - Superannuation: ${Math.round(POLICY.superRate * 100)}% applied to performance and rehearsal fees only
 - Transport reimbursement: up to $${POLICY.transportCap} per band member for fuel/Ubers/parking (receipts, pre-agreed)
 - GST: applied per band member only if that member is GST registered (default off)
+
+TRAVEL DAYS (calculated per player from their own home base, never per band):
+${TRAVEL_DAY_RULE_TEXT}
 
 COMMON BAND MEMBERS: Ben Edgar (guitar, often MD), Dave Symes (bass), Danny Farrugia (drums), Yanya Boston (drums), Mick Meagher (bass), Clio (keys), Georgia (BV), Eilla (BV), Tweedie (guitar), Ruben (bass), Felix Bloxsom (drums), Victor (guitar), Adam V (bass).
 

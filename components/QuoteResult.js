@@ -6,7 +6,7 @@ import { money } from "@/lib/policy";
 // interactive Quick Quote screen and the public /q/[id] share page.
 export default function QuoteResult({ snapshot, onSelectLineup, actions }) {
   if (!snapshot) return null;
-  const { trip, comparison, selected, summary, emmaFeeReference } = snapshot;
+  const { trip, comparison, selected, summary, emmaFeeReference, travel } = snapshot;
 
   return (
     <div style={{ maxWidth: 640, margin: "0 auto", width: "100%" }}>
@@ -15,10 +15,13 @@ export default function QuoteResult({ snapshot, onSelectLineup, actions }) {
         fontFamily: FONTS.display, fontSize: "clamp(20px, 5.5vw, 28px)", lineHeight: 1.35,
         color: COLORS.cream, margin: "0 0 6px", fontWeight: 600,
       }}>{summary}</p>
-      <p style={{ fontSize: 13, color: COLORS.creamFaint, margin: "0 0 22px" }}>
+      <p style={{ fontSize: 13, color: COLORS.creamFaint, margin: "0 0 10px" }}>
         {trip.showDate ? trip.showDate + " - " : ""}{trip.locationLabel}
         {trip.nights > 0 ? " - " + trip.nights + " night" + (trip.nights > 1 ? "s" : "") + " away" : " - no overnight"}
       </p>
+      {travel && travel.summary ? (
+        <p style={{ fontSize: 13.5, color: COLORS.creamDim, margin: "0 0 22px", lineHeight: 1.6 }}>{travel.summary}</p>
+      ) : <div style={{ height: 12 }} />}
 
       {/* Comparison strip - cost for every lineup */}
       <p style={subLabel}>Compare lineups</p>
@@ -74,6 +77,36 @@ export default function QuoteResult({ snapshot, onSelectLineup, actions }) {
         </div>
       )}
 
+      {/* Travel days - how the app worked them out */}
+      {travel && (travel.reasons?.length || travel.assumptions?.length) ? (
+        <div style={{ marginTop: 16 }}>
+          <p style={subLabel}>
+            Travel days {travel.manual ? <span style={manualBadge}>manual</span> : null}
+          </p>
+          <div style={card}>
+            {(travel.reasons || []).length === 0 && (
+              <p style={{ fontSize: 13.5, color: COLORS.creamDim, margin: 0 }}>No travel days for this trip.</p>
+            )}
+            {(travel.reasons || []).map((r, i) => (
+              <div key={i} style={{ display: "flex", gap: 8, alignItems: "flex-start", padding: "4px 0" }}>
+                <span style={{ color: COLORS.gold, fontSize: 13 }}>•</span>
+                <span style={{ fontSize: 13.5, color: COLORS.cream }}>{r.explanation}</span>
+              </div>
+            ))}
+            {(travel.assumptions || []).length > 0 && (
+              <div style={{ marginTop: 10, paddingTop: 10, borderTop: "1px solid " + COLORS.border, display: "flex", flexDirection: "column", gap: 6 }}>
+                {travel.assumptions.map((a, i) => (
+                  <div key={i} style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
+                    {a.assumed ? <span style={assumedChip}>assumed</span> : <span style={{ ...assumedChip, background: "transparent", color: COLORS.creamFaint, borderColor: COLORS.border }}>note</span>}
+                    <span style={{ fontSize: 12.5, color: COLORS.creamDim, lineHeight: 1.5 }}>{a.text}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      ) : null}
+
       {/* Exclusions note */}
       <div style={{
         marginTop: 16, padding: "14px 16px", borderRadius: 12,
@@ -102,6 +135,14 @@ const subLabel = {
 };
 const card = {
   background: COLORS.bgCard, border: "1px solid " + COLORS.border, borderRadius: 16, padding: "18px 20px",
+};
+const assumedChip = {
+  flexShrink: 0, fontSize: 10, fontWeight: 700, letterSpacing: 0.5, textTransform: "uppercase",
+  padding: "2px 7px", borderRadius: 999, background: COLORS.gold, color: COLORS.onGold, border: "1px solid " + COLORS.gold,
+};
+const manualBadge = {
+  marginLeft: 8, fontSize: 10, fontWeight: 700, letterSpacing: 0.5, textTransform: "uppercase",
+  padding: "2px 7px", borderRadius: 999, background: "transparent", color: COLORS.gold, border: "1px solid " + COLORS.gold,
 };
 
 function Row({ label, value, strong, muted }) {

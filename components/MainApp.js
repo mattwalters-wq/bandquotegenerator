@@ -4,6 +4,8 @@ import { supabase } from "@/lib/supabase";
 import { COLORS, FONTS } from "@/lib/theme";
 import { useTheme, getSessionId } from "@/lib/useTheme";
 import QuickQuote from "@/components/QuickQuote";
+import { computePlayerTravel, computePlayerTravelFromAI } from "@/lib/itinerary";
+import { CAPITALS } from "@/lib/travelData";
 import {
   DEFAULT_VALUES, INITIAL_FORM, EMPTY_SHOW,
   SLOT_OPTIONS, FORMAT_OPTIONS, ACTIVITY_OPTIONS,
@@ -22,7 +24,10 @@ export default function MainApp() {
   const [view, setView] = useState("quick"); // quick (Emma mode) | pro (manager tools)
   const [form, setForm] = useState(INITIAL_FORM);
   const [saved, setSaved] = useState([]);
-  const [activePanel, setActivePanel] = useState("chat"); // chat | editor | saved
+  const [members, setMembers] = useState([]);
+  const [travelMeta, setTravelMeta] = useState(null); // { reasons, assumptions } for the editor
+  const [computingTravel, setComputingTravel] = useState(false);
+  const [activePanel, setActivePanel] = useState("chat"); // chat | editor | saved | roster
   const [rightPanel, setRightPanel] = useState("preview"); // preview | email
   const [exporting, setExporting] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -43,8 +48,69 @@ export default function MainApp() {
     setLoading(false);
   }, []);
 
-  useEffect(() => { loadCards(); }, [loadCards]);
+  const loadMembers = useCallback(async () => {
+    if (!supabase) return;
+    try {
+      const { data, error } = await supabase.from("band_members").select("*").order("name");
+      if (!error && data) setMembers(data);
+    } catch (e) { console.error(e); }
+  }, []);
+
+  useEffect(() => { loadCards(); loadMembers(); }, [loadCards, loadMembers]);
   useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [chatMessages]);
+
+  // Roster CRUD
+  const updateMember = async (id, field, value) => {
+    setMembers((prev) => prev.map((m) => m.id === id ? { ...m, [field]: value } : m));
+    if (supabase) await supabase.from("band_members").update({ [field]: value }).eq("id", id);
+  };
+  const addMember = async () => {
+    const row = { name: "New member", instrument: "", home_base: "Melbourne", gst_registered: false };
+    if (supabase) {
+      const { data, error } = await supabase.from("band_members").insert([row]).select().single();
+      if (!error && data) setMembers((prev) => [...prev, data]);
+    } else {
+      setMembers((prev) => [...prev, { id: Date.now(), ...row }]);
+    }
+  };
+  const deleteMember = async (id) => {
+    setMembers((prev) => prev.filter((m) => m.id !== id));
+    if (supabase) await supabase.from("band_members").delete().eq("id", id);
+  };
+
+  // Editor: compute travel days for the recipient from their home base.
+  const toISO = (s) => {
+    if (!s) return null;
+    const d = new Date(s);
+    return isNaN(d.getTime()) ? null : d.toISOString().slice(0, 10);
+  };
+  const computeEditorTravel = async () => {
+    if (computingTravel) return;
+    setComputingTravel(true);
+    setTravelMeta(null);
+    try {
+      const showDates = form.shows.map((s) => toISO(s.performanceDate)).filter(Boolean).sort();
+      const destination = form.shows[0]?.location || "";
+      const input = { homeBase: form.homeBase || "Melbourne", destination, showDates, soundcheckTime: form.soundcheck || "3:00pm", soundcheckProvided: !!form.soundcheck };
+      if (!showDates.length || !destination) {
+        setTravelMeta({ reasons: [], assumptions: [{ text: "Add a location and a parseable show date to compute travel days.", assumed: false }] });
+        setComputingTravel(false);
+        return;
+      }
+      let res = computePlayerTravel(input);
+      if (res.needsEstimate) {
+        const r = await fetch("/api/travel-estimate", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ origin: input.homeBase, destination, showTime: input.soundcheckTime }) });
+        const data = await r.json();
+        if (data.estimate) res = computePlayerTravelFromAI(input, data.estimate);
+        else { setTravelMeta({ reasons: [], assumptions: [{ text: "Could not estimate travel automatically - enter travel days manually.", assumed: false }] }); setComputingTravel(false); return; }
+      }
+      setForm((prev) => ({ ...prev, hasTravelDay: res.travelDays > 0, travelDays: res.travelDays, pdDays: res.nights || prev.pdDays, travelComputed: true, travelManual: false }));
+      setTravelMeta({ reasons: res.reasons, assumptions: res.assumptions });
+    } catch (e) {
+      setTravelMeta({ reasons: [], assumptions: [{ text: "Travel calculation failed: " + e.message, assumed: false }] });
+    }
+    setComputingTravel(false);
+  };
 
   // Load the saved view preference (Quick Quote vs Pro) for this session. New
   // sessions default to Quick Quote.
@@ -197,7 +263,7 @@ export default function MainApp() {
           </div>
           {isPro && (
             <div style={{ display: "flex", gap: 6 }}>
-              {[["chat", "AI Chat"], ["editor", "Editor"], ["saved", "Saved (" + saved.length + ")"]].map(([key, label]) => (
+              {[["chat", "AI Chat"], ["editor", "Editor"], ["saved", "Saved (" + saved.length + ")"], ["roster", "Roster (" + members.length + ")"]].map(([key, label]) => (
                 <button key={key} onClick={() => setActivePanel(key)} style={{
                   padding: "6px 12px", borderRadius: 8, border: "1px solid " + COLORS.border, cursor: "pointer", fontSize: 12, fontWeight: 600, fontFamily: FONTS.body,
                   background: activePanel === key ? COLORS.bgCard : "transparent", color: activePanel === key ? COLORS.gold : COLORS.creamDim,
@@ -296,8 +362,27 @@ export default function MainApp() {
               <SL>Additional Fees</SL>
               <label style={cL}><input type="checkbox" checked={form.hasRehearsalFee} onChange={(e) => update("hasRehearsalFee", e.target.checked)} /> Separate rehearsal fee</label>
               {form.hasRehearsalFee && (<><FG label="Rehearsal Fee"><input type="number" style={iS} value={form.rehearsalFee} onChange={(e) => update("rehearsalFee", e.target.value)} /></FG><FG label="Note"><input style={iS} value={form.rehearsalNote} onChange={(e) => update("rehearsalNote", e.target.value)} /></FG></>)}
+              <SL>Travel (per player, from home base)</SL>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                <FG label="Recipient Home Base"><select style={sS} value={form.homeBase} onChange={(e) => { update("homeBase", e.target.value); update("travelComputed", false); }}>{CAPITALS.map((c) => <option key={c} value={c}>{c}</option>)}</select></FG>
+                <FG label="Soundcheck (optional)"><input style={iS} value={form.soundcheck} onChange={(e) => update("soundcheck", e.target.value)} placeholder="3:00pm" /></FG>
+              </div>
+              <button onClick={computeEditorTravel} disabled={computingTravel} style={{ width: "100%", padding: "9px 0", borderRadius: 8, border: "1px solid " + COLORS.gold, cursor: computingTravel ? "wait" : "pointer", background: "transparent", color: COLORS.gold, fontWeight: 700, fontSize: 12, fontFamily: FONTS.body, marginBottom: 10 }}>
+                {computingTravel ? "Calculating..." : "Compute travel days from itinerary"}
+              </button>
+              {travelMeta && (
+                <div style={{ background: COLORS.bgCard, border: "1px solid " + COLORS.border, borderRadius: 8, padding: "10px 12px", marginBottom: 10 }}>
+                  {(travelMeta.reasons || []).map((r, i) => (
+                    <p key={i} style={{ fontSize: 11.5, color: COLORS.cream, margin: "2px 0" }}>• {r.explanation}</p>
+                  ))}
+                  {(travelMeta.reasons || []).length === 0 && <p style={{ fontSize: 11.5, color: COLORS.creamDim, margin: "2px 0" }}>No travel days for this itinerary.</p>}
+                  {(travelMeta.assumptions || []).map((a, i) => (
+                    <p key={i} style={{ fontSize: 10.5, color: COLORS.creamFaint, margin: "3px 0 0", fontStyle: "italic" }}>{a.assumed ? "(assumed) " : ""}{a.text}</p>
+                  ))}
+                </div>
+              )}
               <label style={cL}><input type="checkbox" checked={form.hasTravelDay} onChange={(e) => update("hasTravelDay", e.target.checked)} /> Travel day(s)</label>
-              {form.hasTravelDay && <FG label="Travel Days"><input type="number" style={iS} value={form.travelDays} onChange={(e) => update("travelDays", e.target.value)} min={1} max={10} /></FG>}
+              {form.hasTravelDay && <FG label={"Travel Days" + (form.travelManual ? " (manual)" : form.travelComputed ? " (computed)" : "")}><input type="number" style={iS} value={form.travelDays} onChange={(e) => { update("travelDays", e.target.value); if (form.travelComputed) update("travelManual", true); }} min={1} max={10} /></FG>}
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
                 <FG label="Per Diem"><input type="number" style={iS} value={form.perDiem} onChange={(e) => update("perDiem", e.target.value)} /></FG>
                 <FG label="PD Days"><input type="number" style={iS} value={form.pdDays} onChange={(e) => update("pdDays", e.target.value)} min={1} max={10} /></FG>
@@ -333,6 +418,30 @@ export default function MainApp() {
                       <button onClick={() => handleDelete(entry.id)} style={smallBtn}>Delete</button>
                     </div>
                   </div>
+              ))}
+            </div>
+          )}
+
+          {activePanel === "roster" && (
+            <div style={{ flex: 1, overflow: "auto", padding: "16px 18px" }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+                <SL>Band Roster</SL>
+                <button onClick={addMember} style={{ padding: "4px 10px", borderRadius: 6, border: "none", cursor: "pointer", background: COLORS.gold, color: COLORS.onGold, fontSize: 11, fontWeight: 700, fontFamily: FONTS.body }}>+ Add</button>
+              </div>
+              <p style={{ fontSize: 11.5, color: COLORS.creamFaint, margin: "0 0 12px", lineHeight: 1.5 }}>Home base drives each player&apos;s travel days. A Sydney show is local for a Sydney-based player.</p>
+              {members.length === 0 && <p style={{ color: COLORS.creamFaint, textAlign: "center", padding: 30 }}>No members yet.</p>}
+              {members.map((m) => (
+                <div key={m.id} style={{ background: COLORS.bgCard, borderRadius: 8, padding: "10px 12px", marginBottom: 8, border: "1px solid " + COLORS.border }}>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                    <FG label="Name"><input style={iS} value={m.name || ""} onChange={(e) => updateMember(m.id, "name", e.target.value)} /></FG>
+                    <FG label="Instrument"><input style={iS} value={m.instrument || ""} onChange={(e) => updateMember(m.id, "instrument", e.target.value)} /></FG>
+                    <FG label="Home Base"><select style={sS} value={m.home_base || "Melbourne"} onChange={(e) => updateMember(m.id, "home_base", e.target.value)}>{CAPITALS.map((c) => <option key={c} value={c}>{c}</option>)}</select></FG>
+                    <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", paddingBottom: 10 }}>
+                      <label style={{ ...cL, marginBottom: 0 }}><input type="checkbox" checked={!!m.gst_registered} onChange={(e) => updateMember(m.id, "gst_registered", e.target.checked)} /> GST reg.</label>
+                      <button onClick={() => deleteMember(m.id)} style={{ ...smallBtn, borderColor: COLORS.error, color: COLORS.error }}>Remove</button>
+                    </div>
+                  </div>
+                </div>
               ))}
             </div>
           )}
