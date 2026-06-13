@@ -384,8 +384,8 @@ export default function MainApp() {
               <label style={cL}><input type="checkbox" checked={form.hasTravelDay} onChange={(e) => update("hasTravelDay", e.target.checked)} /> Travel day(s)</label>
               {form.hasTravelDay && <FG label={"Travel Days" + (form.travelManual ? " (manual)" : form.travelComputed ? " (computed)" : "")}><input type="number" style={iS} value={form.travelDays} onChange={(e) => { update("travelDays", e.target.value); if (form.travelComputed) update("travelManual", true); }} min={1} max={10} /></FG>}
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-                <FG label="Per Diem"><input type="number" style={iS} value={form.perDiem} onChange={(e) => update("perDiem", e.target.value)} /></FG>
-                <FG label="PD Days"><input type="number" style={iS} value={form.pdDays} onChange={(e) => update("pdDays", e.target.value)} min={1} max={10} /></FG>
+                <FG label="Per Diem"><input type="number" style={iS} value={form.perDiem} onChange={(e) => update("perDiem", e.target.value)} min={0} /></FG>
+                <FG label="PD Days (0 to remove)"><input type="number" style={iS} value={form.pdDays} onChange={(e) => update("pdDays", e.target.value)} min={0} max={10} /></FG>
               </div>
 
               <SL>Transport</SL>
