@@ -3,7 +3,7 @@ import { useState, useMemo, useEffect, useRef } from "react";
 import { COLORS, FONTS } from "@/lib/theme";
 import { LOCATION_CLASSES, LINEUPS, locationClass, formatTripDate } from "@/lib/policy";
 import { computePlayerTravel, computePlayerTravelFromAI } from "@/lib/itinerary";
-import { buildQuoteSnapshot, travelWordsSummary } from "@/lib/quote";
+import { buildQuoteSnapshot, travelWordsSummary, quoteEmail } from "@/lib/quote";
 import { CAPITALS } from "@/lib/travelData";
 import { supabase } from "@/lib/supabase";
 import QuoteResult from "./QuoteResult";
@@ -34,6 +34,7 @@ export default function QuickQuote() {
   const [lineupKey, setLineupKey] = useState("full");
 
   const [manualTravel, setManualTravel] = useState(null); // null = use computed
+  const [manualNights, setManualNights] = useState(null); // null = use computed
   const [aiEstimate, setAiEstimate] = useState(null);
   const [aiState, setAiState] = useState("idle"); // idle | loading | error
   const aiKeyRef = useRef("");
@@ -41,6 +42,9 @@ export default function QuickQuote() {
   const [saving, setSaving] = useState(false);
   const [shareUrl, setShareUrl] = useState("");
   const [copied, setCopied] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const [emailPanel, setEmailPanel] = useState(null);
+  const [emailCopied, setEmailCopied] = useState(false);
 
   const cls = locationClass(clsKey);
 
@@ -86,9 +90,11 @@ export default function QuickQuote() {
   }, [melRaw, aiEstimate, baseInput]);
 
   const inferredTravel = mel?.travelDays ?? 0;
-  const nights = mel?.nights ?? 0;
+  const inferredNights = mel?.nights ?? 0;
   const travelDays = manualTravel != null ? manualTravel : inferredTravel;
+  const nights = manualNights != null ? manualNights : inferredNights;
   const isManual = manualTravel != null && manualTravel !== inferredTravel;
+  const nightsManual = manualNights != null && manualNights !== inferredNights;
 
   // Per-base words summary.
   const perBase = useMemo(() => {
@@ -106,13 +112,13 @@ export default function QuickQuote() {
     travel: {
       reasons: mel?.reasons || [],
       assumptions: mel?.assumptions || [],
-      perBase, manual: isManual, summary: travelSummary,
+      perBase, manual: isManual || nightsManual, summary: travelSummary,
     },
-  }), [clsKey, locationText, showDate, travelDays, nights, lineupKey, mel, isManual, travelSummary]);
+  }), [clsKey, locationText, showDate, travelDays, nights, lineupKey, mel, isManual, nightsManual, travelSummary]);
 
   // --- input handlers ---
   const applyClass = (key) => {
-    setClsKey(key); setManualTravel(null); setShareUrl("");
+    setClsKey(key); setManualTravel(null); setManualNights(null); setShareUrl("");
   };
   const pickCity = (city) => {
     setLocationText(city.name); applyClass(city.cls);
@@ -136,6 +142,27 @@ export default function QuickQuote() {
     setSaving(false);
   };
   const copyShare = () => navigator.clipboard.writeText(shareUrl).then(() => { setCopied(true); setTimeout(() => setCopied(false), 2000); });
+
+  const handleExportPdf = async () => {
+    if (exporting) return;
+    setExporting(true);
+    try {
+      const res = await fetch("/api/generate-pdf", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ quote: snapshot }) });
+      if (!res.ok) throw new Error("Failed");
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "Emma_Donovan_Band_Quote_" + (snapshot.trip.locationLabel || "quote").replace(/\s+/g, "_") + ".pdf";
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (e) { alert("PDF export failed."); }
+    setExporting(false);
+  };
+
+  const handleEmail = () => { setEmailPanel(quoteEmail(snapshot)); setEmailCopied(false); };
+  const copyEmail = () => navigator.clipboard.writeText("Subject: " + emailPanel.subject + "\n\n" + emailPanel.body).then(() => { setEmailCopied(true); setTimeout(() => setEmailCopied(false), 2000); });
+  const openMail = () => window.open("mailto:?subject=" + encodeURIComponent(emailPanel.subject) + "&body=" + encodeURIComponent(emailPanel.body));
 
   return (
     <div style={{ width: "100%", overflowY: "auto", padding: "28px 18px 60px", display: "flex", justifyContent: "center" }}>
@@ -176,10 +203,10 @@ export default function QuickQuote() {
 
         {/* WHEN */}
         <Section step="2" title="When is it?">
-          <input type="date" value={showDate} onChange={(e) => { setShowDate(e.target.value); setManualTravel(null); setShareUrl(""); }} style={bigInput} />
+          <input type="date" value={showDate} onChange={(e) => { setShowDate(e.target.value); setManualTravel(null); setManualNights(null); setShareUrl(""); }} style={bigInput} />
           <label style={{ display: "block", marginTop: 14, fontSize: 13, color: COLORS.creamDim }}>
             Soundcheck / load-in time
-            <input value={soundcheck} onChange={(e) => { setSoundcheck(e.target.value); setScProvided(true); setManualTravel(null); setShareUrl(""); }}
+            <input value={soundcheck} onChange={(e) => { setSoundcheck(e.target.value); setScProvided(true); setManualTravel(null); setManualNights(null); setShareUrl(""); }}
               placeholder="3:00pm" style={{ ...bigInput, marginTop: 6 }} />
           </label>
           <p style={{ fontSize: 12, color: COLORS.creamFaint, margin: "8px 2px 0" }}>
@@ -197,23 +224,28 @@ export default function QuickQuote() {
           </div>
         </Section>
 
-        {/* TRAVEL DAYS - computed, editable */}
-        <Section step="" title="Travel days (worked out for you)">
-          {!showDate && <p style={{ fontSize: 13, color: COLORS.creamFaint, margin: 0 }}>Pick a show date above and the app will calculate travel days.</p>}
+        {/* TRAVEL DAYS & PER DIEMS - computed, editable */}
+        <Section step="" title="Travel & per diems (worked out for you)">
+          {!showDate && <p style={{ fontSize: 13, color: COLORS.creamFaint, margin: 0 }}>Pick a show date above and the app will calculate travel days and per diems.</p>}
           {showDate && melRaw.needsEstimate && aiState === "loading" && <p style={{ fontSize: 13, color: COLORS.creamFaint, margin: 0 }}>Estimating travel for {destination}...</p>}
-          {showDate && melRaw.needsEstimate && aiState === "error" && <p style={{ fontSize: 13, color: COLORS.error, margin: 0 }}>Could not estimate travel automatically - enter travel days manually below.</p>}
+          {showDate && melRaw.needsEstimate && aiState === "error" && <p style={{ fontSize: 13, color: COLORS.error, margin: 0 }}>Could not estimate travel automatically - enter values manually below.</p>}
           {showDate && (mel || !melRaw.needsEstimate) && (
-            <div>
-              <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 8 }}>
-                <Stepper value={travelDays} min={0} max={10} onChange={(v) => { setManualTravel(v); setShareUrl(""); }} />
-                <div>
-                  <div style={{ fontSize: 13, color: COLORS.creamDim }}>
-                    {isManual ? <span style={{ color: COLORS.gold, fontWeight: 700 }}>Manual</span> : "Computed"} for {BAND_BASE}-based players
-                  </div>
-                  {isManual && <button onClick={() => setManualTravel(null)} style={{ ...chip, marginTop: 6 }}>Use computed ({inferredTravel})</button>}
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 24 }}>
+              <div>
+                <div style={{ fontSize: 13, color: COLORS.creamDim, marginBottom: 8 }}>
+                  Travel days {isManual ? <span style={{ color: COLORS.gold, fontWeight: 700 }}>(manual)</span> : <span style={{ color: COLORS.creamFaint }}>(computed)</span>}
                 </div>
+                <Stepper value={travelDays} min={0} max={10} onChange={(v) => { setManualTravel(v); setShareUrl(""); }} />
+                {isManual && <button onClick={() => { setManualTravel(null); setShareUrl(""); }} style={{ ...chip, marginTop: 8 }}>Use computed ({inferredTravel})</button>}
               </div>
-              <p style={{ fontSize: 12, color: COLORS.creamFaint, margin: 0 }}>Per diems: {nights} overnight{nights === 1 ? "" : "s"} away. Each value is editable - your override wins.</p>
+              <div>
+                <div style={{ fontSize: 13, color: COLORS.creamDim, marginBottom: 8 }}>
+                  Per diems / nights {nightsManual ? <span style={{ color: COLORS.gold, fontWeight: 700 }}>(manual)</span> : <span style={{ color: COLORS.creamFaint }}>(computed)</span>}
+                </div>
+                <Stepper value={nights} min={0} max={14} onChange={(v) => { setManualNights(v); setShareUrl(""); }} />
+                {nightsManual && <button onClick={() => { setManualNights(null); setShareUrl(""); }} style={{ ...chip, marginTop: 8 }}>Use computed ({inferredNights})</button>}
+              </div>
+              <p style={{ flexBasis: "100%", fontSize: 12, color: COLORS.creamFaint, margin: 0 }}>Both are for {BAND_BASE}-based players and fully editable - set per diems to 0 to remove them. Your override wins.</p>
             </div>
           )}
         </Section>
@@ -223,15 +255,31 @@ export default function QuickQuote() {
           <QuoteResult snapshot={snapshot} onSelectLineup={(k) => { setLineupKey(k); setShareUrl(""); }}
             actions={
               <div>
-                {!shareUrl ? (
-                  <button onClick={handleShare} disabled={saving} style={primaryBtn}>{saving ? "Saving..." : "Save & share this quote"}</button>
-                ) : (
-                  <div style={{ background: COLORS.bgCard, border: "1px solid " + COLORS.border, borderRadius: 14, padding: 16 }}>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  <button onClick={handleExportPdf} disabled={exporting} style={primaryBtn}>{exporting ? "Exporting..." : "Export PDF"}</button>
+                  <button onClick={handleEmail} style={secondaryBtn}>Email</button>
+                  <button onClick={handleShare} disabled={saving} style={secondaryBtn}>{saving ? "Saving..." : "Save & share link"}</button>
+                </div>
+
+                {shareUrl && (
+                  <div style={{ marginTop: 12, background: COLORS.bgCard, border: "1px solid " + COLORS.border, borderRadius: 14, padding: 16 }}>
                     <p style={{ fontSize: 12, color: COLORS.gold, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1.2, margin: "0 0 8px" }}>Read-only link</p>
                     <p style={{ fontSize: 13, color: COLORS.creamDim, wordBreak: "break-all", margin: "0 0 12px" }}>{shareUrl}</p>
                     <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                       <button onClick={copyShare} style={primaryBtn}>{copied ? "Copied!" : "Copy link"}</button>
                       <a href={shareUrl} target="_blank" rel="noreferrer" style={{ ...secondaryBtn, textDecoration: "none", display: "inline-flex", alignItems: "center" }}>Open</a>
+                    </div>
+                  </div>
+                )}
+
+                {emailPanel && (
+                  <div style={{ marginTop: 12, background: COLORS.bgCard, border: "1px solid " + COLORS.border, borderRadius: 14, padding: 16 }}>
+                    <p style={{ fontSize: 12, color: COLORS.gold, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1.2, margin: "0 0 6px" }}>Email</p>
+                    <p style={{ fontSize: 13.5, color: COLORS.cream, fontWeight: 600, margin: "0 0 8px" }}>{emailPanel.subject}</p>
+                    <pre style={{ fontSize: 12.5, color: COLORS.creamDim, whiteSpace: "pre-wrap", lineHeight: 1.6, margin: 0, fontFamily: FONTS.body }}>{emailPanel.body}</pre>
+                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 12 }}>
+                      <button onClick={copyEmail} style={primaryBtn}>{emailCopied ? "Copied!" : "Copy"}</button>
+                      <button onClick={openMail} style={secondaryBtn}>Open in mail</button>
                     </div>
                   </div>
                 )}
