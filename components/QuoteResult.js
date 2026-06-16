@@ -74,6 +74,15 @@ export default function QuoteResult({ snapshot, onSelectLineup, actions }) {
             <span style={{ fontSize: 15, fontWeight: 700, color: COLORS.cream }}>Estimated band total</span>
             <span style={{ fontSize: 24, fontWeight: 700, color: COLORS.gold, fontFamily: FONTS.display }}>{money(selected.total)}</span>
           </div>
+          {selected.per.transportCap ? (
+            <>
+              <div style={{ height: 1, background: COLORS.border, margin: "10px 0" }} />
+              <p style={{ fontSize: 12.5, color: COLORS.creamFaint, margin: 0, lineHeight: 1.6 }}>
+                <strong style={{ color: COLORS.creamDim }}>Plus ground transport:</strong> up to {money(selected.per.transportCap)} per
+                musician, agreed in the booking offer and reimbursed on receipts. <strong>Not</strong> included in the total above.
+              </p>
+            </>
+          ) : null}
         </div>
       )}
 
