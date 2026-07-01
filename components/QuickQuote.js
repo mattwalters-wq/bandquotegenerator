@@ -153,7 +153,7 @@ export default function QuickQuote() {
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = "Emma_Donovan_Band_Quote_" + (snapshot.trip.locationLabel || "quote").replace(/\s+/g, "_") + ".pdf";
+      a.download = "Emma Donovan - Band Quote - " + (snapshot.trip.locationLabel || "Quote") + ".pdf";
       document.body.appendChild(a); a.click(); document.body.removeChild(a);
       URL.revokeObjectURL(url);
     } catch (e) { alert("PDF export failed."); }
