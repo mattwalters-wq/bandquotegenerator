@@ -2,31 +2,20 @@ import { NextResponse } from "next/server";
 import { jsPDF } from "jspdf";
 import { POLICY } from "@/lib/policy";
 
-const BG = [28, 20, 16];
-const CARD = [42, 31, 24];
-const GOLD = [212, 160, 74];
-const CREAM = [245, 239, 230];
-const DIM = [196, 184, 168];
-const TH = [74, 56, 40];
-const TA = [58, 44, 32];
-const DIV = [74, 60, 48];
+// Clean, light, editorial document - warm white paper, dark brown ink, a
+// restrained gold accent. Far more professional (and printable) than a dark fill.
+const PAPER = [255, 253, 248];
+const INK = [38, 30, 22];
+const SOFT = [92, 79, 66];
+const FAINT = [150, 136, 120];
+const GOLD = [169, 118, 42];
+const RULE = [228, 217, 199];
+const ALT = [248, 243, 234];
 
-function newPage(doc, W, H) {
-  doc.addPage();
-  doc.setFillColor(...BG);
-  doc.rect(0, 0, W, H, "F");
-  doc.setFillColor(...GOLD);
-  doc.rect(0, 0, W, 5, "F");
-  return 18;
-}
-
-function checkPage(doc, y, W, H, needed) {
-  if (y + needed > H - 10) return newPage(doc, W, H);
-  return y;
-}
+const money = (n) => "$" + Number(n || 0).toLocaleString("en-AU", { maximumFractionDigits: 0 });
 
 function wrapText(doc, text, maxW) {
-  const words = text.split(" ");
+  const words = String(text).split(" ");
   const lines = [];
   let line = "";
   for (const word of words) {
@@ -38,102 +27,292 @@ function wrapText(doc, text, maxW) {
   return lines;
 }
 
-const m$ = (n) => "$" + Number(n || 0).toLocaleString("en-AU", { maximumFractionDigits: 0 });
+function frame(doc, W, H) {
+  doc.setFillColor(...PAPER); doc.rect(0, 0, W, H, "F");
+  doc.setFillColor(...GOLD); doc.rect(0, 0, W, 2.2, "F"); // slim brand rule
+}
 
-// Band Quote PDF (from the Quick Quote snapshot).
+function footer(doc, W, H) {
+  const pages = doc.internal.getNumberOfPages();
+  for (let p = 1; p <= pages; p++) {
+    doc.setPage(p);
+    doc.setDrawColor(...RULE); doc.setLineWidth(0.2); doc.line(22, H - 12, W - 22, H - 12);
+    doc.setFont("helvetica", "normal"); doc.setFontSize(7.5); doc.setTextColor(...FAINT);
+    doc.text("Emma Donovan", 22, H - 8);
+    doc.text(p + " / " + pages, W - 22, H - 8, { align: "right" });
+  }
+}
+
+function checkPage(doc, y, W, H, need) {
+  if (y + need > H - 18) { doc.addPage(); frame(doc, W, H); return 22; }
+  return y;
+}
+
+// Small-caps gold section heading with a hairline rule beneath.
+function heading(doc, text, M, W, y) {
+  doc.setFont("helvetica", "bold"); doc.setFontSize(9); doc.setTextColor(...GOLD);
+  doc.setCharSpace(0.8);
+  doc.text(text.toUpperCase(), M, y);
+  doc.setCharSpace(0);
+  doc.setDrawColor(...RULE); doc.setLineWidth(0.2); doc.line(M, y + 2.5, W - M, y + 2.5);
+  return y + 9;
+}
+
+function detailRow(doc, M, y, label, value) {
+  doc.setFont("helvetica", "normal"); doc.setFontSize(9.5); doc.setTextColor(...FAINT);
+  doc.text(label, M, y);
+  doc.setFont("helvetica", "bold"); doc.setTextColor(...INK);
+  doc.text(String(value || "-"), M + 40, y);
+  return y + 6;
+}
+
+// ---------------------------------------------------------------------------
+// Rate card (fee offer) PDF
+// ---------------------------------------------------------------------------
+function rateCardPdf(form) {
+  const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+  const W = doc.internal.pageSize.getWidth();
+  const H = doc.internal.pageSize.getHeight();
+  const M = 22;
+  const CW = W - M * 2;
+  frame(doc, W, H);
+  let y = 24;
+
+  const shows = form.shows || [];
+  const multiShow = shows.length > 1;
+
+  // Masthead
+  doc.setFont("times", "bold"); doc.setFontSize(28); doc.setTextColor(...INK);
+  doc.text("Emma Donovan", M, y);
+  y += 7;
+  doc.setFont("helvetica", "normal"); doc.setFontSize(9); doc.setTextColor(...FAINT);
+  doc.setCharSpace(1.2);
+  doc.text((multiShow ? "FEE OFFER - " + shows.length + " ENGAGEMENTS" : "FEE OFFER"), M, y);
+  doc.setCharSpace(0);
+  y += 6;
+  doc.setDrawColor(...GOLD); doc.setLineWidth(0.5); doc.line(M, y, W - M, y);
+  y += 11;
+
+  // Engagement details
+  shows.forEach((show, idx) => {
+    y = checkPage(doc, y, W, H, 44);
+    const title = multiShow ? "Engagement " + (idx + 1) + " - " + (show.activity || "Performance") : "Engagement Details";
+    y = heading(doc, title, M, W, y);
+    y = detailRow(doc, M, y, "Engagement", show.engagement);
+    y = detailRow(doc, M, y, "Location", show.location);
+    y = detailRow(doc, M, y, "Date", show.performanceDate);
+    y = detailRow(doc, M, y, "Slot", show.slot);
+    if (show.repertoire) y = detailRow(doc, M, y, "Repertoire", show.repertoire);
+    y = detailRow(doc, M, y, "Format", show.format);
+    y += 5;
+  });
+
+  // Fee breakdown
+  const rows = [];
+  let total = 0;
+  shows.forEach((show, i) => {
+    const fee = Number(show.performanceFee) || POLICY.showFee.interstate;
+    const label = multiShow
+      ? show.activity + " fee - " + (show.engagement || "Show " + (i + 1)) + " (" + (show.performanceDate || "TBD") + ")"
+      : show.activity + " fee";
+    rows.push([label, fee, 1, fee]); total += fee;
+    if (show.hasMdFee) { const md = Number(show.mdFee) || POLICY.mdFee.halfDay; rows.push([multiShow ? "Music Director - " + (show.engagement || "Show " + (i + 1)) : "Music Director fee", md, 1, md]); total += md; }
+  });
+  if (form.hasRehearsalFee) { const rh = Number(form.rehearsalFee) || POLICY.rehearsal.halfDay; rows.push(["Rehearsal" + (form.rehearsalNote ? " - " + form.rehearsalNote : ""), rh, 1, rh]); total += rh; }
+  if (form.hasTravelDay) { const td = POLICY.travelDay; const days = Number(form.travelDays) || 1; rows.push(["Travel day", td, days, td * days]); total += td * days; }
+  const pdRaw = Number(form.perDiem);
+  const pd = (form.perDiem === "" || form.perDiem == null || isNaN(pdRaw)) ? POLICY.perDiem : pdRaw;
+  const pdDaysRaw = Number(form.pdDays);
+  const pdDays = isNaN(pdDaysRaw) ? 0 : pdDaysRaw;
+  if (pdDays > 0 && pd > 0) { rows.push(["Living allowance (per diem)", pd, pdDays, pd * pdDays]); total += pd * pdDays; }
+
+  y = checkPage(doc, y, W, H, 30);
+  y = heading(doc, "Fee Breakdown", M, W, y);
+
+  const totalX = W - M;
+  const qtyX = totalX - 26;
+  const amtX = qtyX - 24;
+  const itemMax = amtX - M - 6;
+
+  doc.setFont("helvetica", "bold"); doc.setFontSize(8); doc.setTextColor(...FAINT);
+  doc.setCharSpace(0.5);
+  doc.text("ITEM", M, y); doc.text("AMOUNT", amtX, y, { align: "right" }); doc.text("QTY", qtyX, y, { align: "right" }); doc.text("TOTAL", totalX, y, { align: "right" });
+  doc.setCharSpace(0);
+  y += 2; doc.setDrawColor(...RULE); doc.setLineWidth(0.2); doc.line(M, y, W - M, y); y += 5;
+
+  doc.setFontSize(9.5);
+  rows.forEach((r) => {
+    const lines = wrapText(doc, r[0], itemMax);
+    const rowH = Math.max(lines.length * 4.6 + 2.4, 7);
+    y = checkPage(doc, y, W, H, rowH + 4);
+    doc.setFont("helvetica", "normal"); doc.setTextColor(...INK);
+    lines.forEach((l, li) => doc.text(l, M, y + li * 4.6));
+    doc.setTextColor(...SOFT);
+    doc.text(money(r[1]), amtX, y, { align: "right" });
+    doc.text(String(r[2]), qtyX, y, { align: "right" });
+    doc.setTextColor(...INK); doc.text(money(r[3]), totalX, y, { align: "right" });
+    y += rowH;
+    doc.setDrawColor(...RULE); doc.setLineWidth(0.15); doc.line(M, y - 2.4, W - M, y - 2.4);
+  });
+
+  // Total
+  y += 3.5;
+  doc.setDrawColor(...GOLD); doc.setLineWidth(0.5); doc.line(M, y - 4, W - M, y - 4);
+  doc.setFont("helvetica", "bold"); doc.setFontSize(11); doc.setTextColor(...INK);
+  doc.text("Total", M, y + 1);
+  doc.setFontSize(13); doc.setTextColor(...GOLD);
+  doc.text(money(total), totalX, y + 1, { align: "right" });
+  doc.setFont("helvetica", "normal"); doc.setFontSize(7.5); doc.setTextColor(...FAINT);
+  doc.text("GST excl", totalX, y + 6, { align: "right" });
+  y += 15;
+
+  // Conditions
+  const conditions = [
+    "Upon acceptance of this offer, a tour schedule and charts will be prepared and distributed.",
+    "Fees are payable within 14 days of the invoice date, following the performance.",
+    "Superannuation contributions will be made at " + (form.superRate || Math.round(POLICY.superRate * 100)) + "% of performance and rehearsal fees to the nominated fund.",
+    "Please add the living allowance (per diem) to your invoice.",
+  ];
+  y = checkPage(doc, y, W, H, 40);
+  y = heading(doc, "Conditions", M, W, y);
+  y = bulletList(doc, M, W, H, y, conditions);
+  y += 4;
+
+  // Transport
+  const tLines = [];
+  if (form.transportType === "interstate_provided") tLines.push("If you are travelling interstate, travel is provided.");
+  else if (form.transportType === "flights_accom") tLines.push("Where interstate travel is required, flights and accommodation are provided.");
+  else if (form.transportType === "travel_provided") tLines.push("Travel is provided.");
+  if (form.reimbursementCap && form.reimbursementItems) {
+    tLines.push("A reimbursement of up to $" + form.reimbursementCap + " will be provided for " + form.reimbursementItems + " upon receipt of proof of payment.");
+    tLines.push("Travel reimbursements are handled separately and cannot be included in the fee.");
+  }
+  if (form.hasAccommodation && form.transportType !== "flights_accom") tLines.push(form.accommodationNote || "Accommodation is provided where an overnight stay is required.");
+  if (tLines.length) {
+    y = checkPage(doc, y, W, H, 30);
+    y = heading(doc, "Transport & Accommodation", M, W, y);
+    y = bulletList(doc, M, W, H, y, tLines);
+    y += 4;
+  }
+
+  // Invoice to
+  y = checkPage(doc, y, W, H, 24);
+  y = heading(doc, "Invoice To", M, W, y);
+  doc.setFont("helvetica", "bold"); doc.setFontSize(10); doc.setTextColor(...INK);
+  doc.text("Jiindahood Pty Ltd", M, y); y += 5;
+  doc.setFont("helvetica", "normal"); doc.setTextColor(...SOFT);
+  doc.text("ABN: 61 663 395 364", M, y);
+
+  footer(doc, W, H);
+  return respond(doc, "rate-card");
+}
+
+function bulletList(doc, M, W, H, y, items) {
+  doc.setFont("helvetica", "normal"); doc.setFontSize(9); doc.setTextColor(...SOFT);
+  items.forEach((c) => {
+    const lines = wrapText(doc, c, W - M * 2 - 5);
+    y = checkPage(doc, y, W, H, lines.length * 4.6 + 3);
+    doc.setTextColor(...GOLD); doc.text("-", M, y);
+    doc.setTextColor(...SOFT);
+    lines.forEach((l, li) => doc.text(l, M + 5, y + li * 4.6));
+    y += lines.length * 4.6 + 2.4;
+  });
+  return y;
+}
+
+// ---------------------------------------------------------------------------
+// Band Quote PDF (from the Quick Quote snapshot)
+// ---------------------------------------------------------------------------
 function quotePdf(q) {
   const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
   const W = doc.internal.pageSize.getWidth();
   const H = doc.internal.pageSize.getHeight();
-  const M = 20;
+  const M = 22;
   const CW = W - M * 2;
+  frame(doc, W, H);
+  let y = 24;
 
-  doc.setFillColor(...BG); doc.rect(0, 0, W, H, "F");
-  doc.setFillColor(...GOLD); doc.rect(0, 0, W, 5, "F");
-  let y = 20;
-
-  doc.setFont("helvetica", "bold"); doc.setFontSize(26); doc.setTextColor(...CREAM);
+  doc.setFont("times", "bold"); doc.setFontSize(28); doc.setTextColor(...INK);
   doc.text("Emma Donovan", M, y);
-  y += 7; doc.setFont("helvetica", "normal"); doc.setFontSize(11); doc.setTextColor(...DIM);
-  doc.text("Band Quote", M, y);
-  y += 5; doc.setDrawColor(...GOLD); doc.setLineWidth(0.5); doc.line(M, y, W - M, y); y += 9;
+  y += 7;
+  doc.setFont("helvetica", "normal"); doc.setFontSize(9); doc.setTextColor(...FAINT);
+  doc.setCharSpace(1.2); doc.text("BAND QUOTE", M, y); doc.setCharSpace(0);
+  y += 6; doc.setDrawColor(...GOLD); doc.setLineWidth(0.5); doc.line(M, y, W - M, y); y += 11;
 
   // Summary
-  doc.setFont("helvetica", "bold"); doc.setFontSize(12); doc.setTextColor(...CREAM);
-  wrapText(doc, q.summary || "", CW).forEach((l) => { y = checkPage(doc, y, W, H, 8); doc.text(l, M, y); y += 6; });
+  doc.setFont("times", "italic"); doc.setFontSize(14); doc.setTextColor(...INK);
+  wrapText(doc, q.summary || "", CW).forEach((l) => { y = checkPage(doc, y, W, H, 8); doc.text(l, M, y); y += 7; });
   y += 1;
-  doc.setFont("helvetica", "normal"); doc.setFontSize(9.5); doc.setTextColor(...DIM);
-  const sub = [q.trip.showDate, q.trip.locationLabel, (q.trip.nights ? q.trip.nights + " night(s) away" : "no overnight")].filter(Boolean).join("  -  ");
+  doc.setFont("helvetica", "normal"); doc.setFontSize(9); doc.setTextColor(...FAINT);
+  const sub = [q.trip.showDate, q.trip.locationLabel, (q.trip.nights ? q.trip.nights + " night(s) away" : "no overnight")].filter(Boolean).join("   -   ");
   doc.text(sub, M, y); y += 6;
-  if (q.travel && q.travel.summary) { wrapText(doc, q.travel.summary, CW).forEach((l) => { y = checkPage(doc, y, W, H, 8); doc.text(l, M, y); y += 5; }); }
-  y += 4;
+  if (q.travel && q.travel.summary) { doc.setTextColor(...SOFT); wrapText(doc, q.travel.summary, CW).forEach((l) => { y = checkPage(doc, y, W, H, 7); doc.text(l, M, y); y += 5; }); }
+  y += 5;
 
   // Lineup comparison
-  doc.setFont("helvetica", "bold"); doc.setFontSize(11); doc.setTextColor(...GOLD);
-  doc.text("Lineup comparison", M, y); y += 7;
-  doc.setFillColor(...TH); doc.roundedRect(M, y - 4, CW, 7, 1, 1, "F");
-  doc.setFontSize(8.5); doc.setTextColor(...GOLD);
-  doc.text("LINEUP", M + 3, y); doc.text("MUSICIANS", M + CW * 0.5, y); doc.text("BAND COST", M + CW - 32, y); y += 6;
-  doc.setFontSize(9.5);
-  (q.comparison || []).forEach((c, i) => {
+  y = checkPage(doc, y, W, H, 30);
+  y = heading(doc, "Lineup comparison", M, W, y);
+  const totalX = W - M, musX = totalX - 34;
+  doc.setFont("helvetica", "bold"); doc.setFontSize(8); doc.setTextColor(...FAINT); doc.setCharSpace(0.5);
+  doc.text("LINEUP", M, y); doc.text("MUSICIANS", musX, y, { align: "right" }); doc.text("BAND COST", totalX, y, { align: "right" });
+  doc.setCharSpace(0); y += 2; doc.setDrawColor(...RULE); doc.setLineWidth(0.2); doc.line(M, y, W - M, y); y += 5;
+  doc.setFontSize(10);
+  (q.comparison || []).forEach((c) => {
     y = checkPage(doc, y, W, H, 8);
-    if (i % 2 === 1) { doc.setFillColor(...TA); doc.rect(M, y - 4, CW, 7, "F"); }
     const sel = c.key === q.selected.key;
-    doc.setFont("helvetica", sel ? "bold" : "normal"); doc.setTextColor(...(sel ? GOLD : CREAM));
-    doc.text(c.label + (sel ? "  (selected)" : ""), M + 3, y);
-    doc.setTextColor(...DIM);
-    doc.text(c.musicians === 0 ? "-" : String(c.musicians), M + CW * 0.5, y);
-    doc.setTextColor(...(sel ? GOLD : CREAM));
-    doc.text(c.musicians === 0 ? "no band" : m$(c.total), M + CW - 32, y);
-    y += 7;
+    doc.setFont("helvetica", sel ? "bold" : "normal"); doc.setTextColor(...(sel ? GOLD : INK));
+    doc.text(c.label + (sel ? "  (selected)" : ""), M, y);
+    doc.setFont("helvetica", "normal"); doc.setTextColor(...SOFT);
+    doc.text(c.musicians === 0 ? "-" : String(c.musicians), musX, y, { align: "right" });
+    doc.setFont("helvetica", sel ? "bold" : "normal"); doc.setTextColor(...(sel ? GOLD : INK));
+    doc.text(c.musicians === 0 ? "no band" : money(c.total), totalX, y, { align: "right" });
+    y += 6.5; doc.setDrawColor(...RULE); doc.setLineWidth(0.15); doc.line(M, y - 2.4, W - M, y - 2.4);
   });
   y += 6;
 
   // Selected breakdown
   if (q.selected.musicians > 0) {
-    y = checkPage(doc, y, W, H, 40);
-    doc.setFont("helvetica", "bold"); doc.setFontSize(11); doc.setTextColor(...GOLD);
-    doc.text(q.selected.label + " - per musician", M, y); y += 7;
+    y = checkPage(doc, y, W, H, 44);
+    y = heading(doc, q.selected.label + " - per musician", M, W, y);
     doc.setFontSize(9.5);
     (q.selected.per.lines || []).forEach((l) => {
       y = checkPage(doc, y, W, H, 7);
-      doc.setFont("helvetica", "normal"); doc.setTextColor(...DIM); doc.text(l.label, M + 2, y);
-      doc.setTextColor(...CREAM); doc.text(m$(l.amount), M + CW - 30, y); y += 5.5;
+      doc.setFont("helvetica", "normal"); doc.setTextColor(...SOFT); doc.text(l.label, M, y);
+      doc.setTextColor(...INK); doc.text(money(l.amount), totalX, y, { align: "right" }); y += 5.6;
     });
-    y += 1; doc.setDrawColor(...DIV); doc.setLineWidth(0.2); doc.line(M, y, W - M, y); y += 6;
-    doc.setFont("helvetica", "bold"); doc.setTextColor(...CREAM);
-    doc.text("Per musician", M + 2, y); doc.text(m$(q.selected.per.total), M + CW - 30, y); y += 6;
-    doc.setFont("helvetica", "normal"); doc.setTextColor(...DIM);
-    doc.text("x " + q.selected.musicians + " musician(s)", M + 2, y); y += 8;
-    doc.setFillColor(...GOLD); doc.roundedRect(M, y - 5, CW, 10, 1, 1, "F");
-    doc.setFont("helvetica", "bold"); doc.setFontSize(12); doc.setTextColor(...BG);
-    doc.text("ESTIMATED BAND TOTAL", M + 3, y + 1);
-    doc.text(m$(q.selected.total), M + CW - 30, y + 1); y += 14;
+    doc.setDrawColor(...RULE); doc.setLineWidth(0.2); doc.line(M, y - 2, W - M, y - 2); y += 4;
+    doc.setFont("helvetica", "bold"); doc.setTextColor(...INK);
+    doc.text("Per musician", M, y); doc.text(money(q.selected.per.total), totalX, y, { align: "right" }); y += 6;
+    doc.setFont("helvetica", "normal"); doc.setTextColor(...SOFT);
+    doc.text("x " + q.selected.musicians + " musician(s)", M, y); y += 9;
+    doc.setDrawColor(...GOLD); doc.setLineWidth(0.5); doc.line(M, y - 4.5, W - M, y - 4.5);
+    doc.setFont("helvetica", "bold"); doc.setFontSize(11); doc.setTextColor(...INK);
+    doc.text("Estimated band total", M, y + 1);
+    doc.setFontSize(14); doc.setTextColor(...GOLD);
+    doc.text(money(q.selected.total), totalX, y + 1, { align: "right" }); y += 14;
   }
 
-  // Travel reasons
   if (q.travel && (q.travel.reasons || []).length) {
-    y = checkPage(doc, y, W, H, 20);
-    doc.setFont("helvetica", "bold"); doc.setFontSize(11); doc.setTextColor(...GOLD);
-    doc.text("Travel days", M, y); y += 7;
-    doc.setFont("helvetica", "normal"); doc.setFontSize(9); doc.setTextColor(...DIM);
-    q.travel.reasons.forEach((r) => { wrapText(doc, "- " + r.explanation, CW - 4).forEach((l) => { y = checkPage(doc, y, W, H, 6); doc.text(l, M, y); y += 4.5; }); });
+    y = checkPage(doc, y, W, H, 24);
+    y = heading(doc, "Travel days", M, W, y);
+    y = bulletList(doc, M, W, H, y, q.travel.reasons.map((r) => r.explanation));
     y += 4;
   }
 
-  // Exclusions + Emma reference
-  y = checkPage(doc, y, W, H, 24);
-  doc.setDrawColor(...DIV); doc.setLineWidth(0.2); doc.line(M, y, W - M, y); y += 6;
-  doc.setFont("helvetica", "normal"); doc.setFontSize(9); doc.setTextColor(...DIM);
-  ["Flights, accommodation and backline are NOT included in this number.",
-   "Emma's own performance fee (" + m$(q.emmaFeeReference) + "/show) sits in the P&L and is not part of the band cost. Figures exclude GST (added only for GST-registered musicians)."]
-    .forEach((c) => { wrapText(doc, c, CW).forEach((l) => { y = checkPage(doc, y, W, H, 6); doc.text(l, M, y); y += 4.5; }); y += 1; });
+  y = checkPage(doc, y, W, H, 26);
+  y = heading(doc, "Not included", M, W, y);
+  y = bulletList(doc, M, W, H, y, [
+    "Flights, accommodation and backline are not included in this number.",
+    "Emma's own performance fee (" + money(q.emmaFeeReference) + "/show) sits in the P&L and is not part of the band cost. Figures exclude GST (added only for GST-registered musicians).",
+  ]);
 
-  const pageCount = doc.internal.getNumberOfPages();
-  for (let p = 1; p <= pageCount; p++) { doc.setPage(p); doc.setFillColor(...GOLD); doc.rect(0, H - 3, W, 3, "F"); }
+  footer(doc, W, H);
+  return respond(doc, "band-quote");
+}
 
+function respond(doc, name) {
   return new NextResponse(doc.output("arraybuffer"), {
-    headers: { "Content-Type": "application/pdf", "Content-Disposition": "attachment; filename=band-quote.pdf" },
+    headers: { "Content-Type": "application/pdf", "Content-Disposition": "attachment; filename=" + name + ".pdf" },
   });
 }
 
@@ -141,290 +320,7 @@ export async function POST(request) {
   try {
     const body = await request.json();
     if (body && body.quote) return quotePdf(body.quote);
-    const { form } = body;
-    const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
-    const W = doc.internal.pageSize.getWidth();
-    const H = doc.internal.pageSize.getHeight();
-    const M = 20;
-    const CW = W - M * 2;
-
-    doc.setFillColor(...BG);
-    doc.rect(0, 0, W, H, "F");
-    doc.setFillColor(...GOLD);
-    doc.rect(0, 0, W, 5, "F");
-
-    let y = 20;
-
-    // Title
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(28);
-    doc.setTextColor(...CREAM);
-    doc.text("Emma Donovan", M, y);
-
-    y += 8;
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(11);
-    doc.setTextColor(...DIM);
-    const multiShow = form.shows && form.shows.length > 1;
-    doc.text(multiShow ? "Fee Offer - " + form.shows.length + " Engagements" : "Fee Offer - Engagement", M, y);
-
-    y += 5;
-    doc.setDrawColor(...GOLD);
-    doc.setLineWidth(0.5);
-    doc.line(M, y, W - M, y);
-    y += 10;
-
-    // Shows
-    const shows = form.shows || [];
-    shows.forEach((show, idx) => {
-      y = checkPage(doc, y, W, H, 50);
-
-      if (multiShow) {
-        doc.setFont("helvetica", "bold");
-        doc.setFontSize(10);
-        doc.setTextColor(...GOLD);
-        doc.text((show.activity || "Performance").toUpperCase() + " " + (idx + 1) + " of " + shows.length, M, y);
-        y += 7;
-      } else {
-        doc.setFont("helvetica", "bold");
-        doc.setFontSize(11);
-        doc.setTextColor(...GOLD);
-        doc.text("Engagement Details", M, y);
-        y += 7;
-      }
-
-      const details = [
-        ["Engagement", show.engagement || "-"],
-        ["Location", show.location || "-"],
-        ["Date", show.performanceDate || "-"],
-        ["Slot", show.slot || "-"],
-      ];
-      if (show.repertoire) details.push(["Repertoire", show.repertoire]);
-      details.push(["Format", show.format || "-"]);
-      if (multiShow) details.push(["Activity", show.activity || "Performance"]);
-
-      doc.setFontSize(10);
-      details.forEach(([label, value]) => {
-        doc.setFont("helvetica", "normal");
-        doc.setTextColor(...DIM);
-        doc.text(label, M + 2, y);
-        doc.setFont("helvetica", "bold");
-        doc.setTextColor(...CREAM);
-        doc.text(value, M + 45, y);
-        y += 5.5;
-      });
-
-      if (multiShow && idx < shows.length - 1) {
-        y += 3;
-        doc.setDrawColor(...DIV);
-        doc.setLineWidth(0.15);
-        doc.line(M, y, W - M, y);
-        y += 6;
-      }
-    });
-
-    y += 5;
-    doc.setDrawColor(...DIV);
-    doc.setLineWidth(0.2);
-    doc.line(M, y, W - M, y);
-    y += 8;
-
-    // Fee breakdown
-    y = checkPage(doc, y, W, H, 50);
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(11);
-    doc.setTextColor(...GOLD);
-    doc.text("Fee Breakdown", M, y);
-    y += 7;
-
-    // Build rows
-    const rows = [];
-    let total = 0;
-
-    shows.forEach((show, i) => {
-      const fee = Number(show.performanceFee) || POLICY.showFee.interstate;
-      const label = multiShow
-        ? show.activity + " fee - " + (show.engagement || "Show " + (i + 1)) + " (" + (show.performanceDate || "TBD") + ")"
-        : show.activity + " fee";
-      rows.push([label, fee, 1, fee]);
-      total += fee;
-      if (show.hasMdFee) {
-        const md = Number(show.mdFee) || POLICY.mdFee.halfDay;
-        rows.push([multiShow ? "Music Director - " + (show.engagement || "Show " + (i + 1)) : "Music Director fee", md, 1, md]);
-        total += md;
-      }
-    });
-
-    if (form.hasRehearsalFee) {
-      const rh = Number(form.rehearsalFee) || POLICY.rehearsal.halfDay;
-      rows.push(["Rehearsal" + (form.rehearsalNote ? " - " + form.rehearsalNote : ""), rh, 1, rh]);
-      total += rh;
-    }
-    if (form.hasTravelDay) {
-      // Flat travel-day rate per lib/policy.js. Travel on a show day is included
-      // in the show fee, so only full non-show travel days are charged here.
-      const td = POLICY.travelDay;
-      const travelDays = Number(form.travelDays) || 1;
-      rows.push(["Travel day", td, travelDays, td * travelDays]);
-      total += td * travelDays;
-    }
-    const pdRaw = Number(form.perDiem);
-    const pd = (form.perDiem === "" || form.perDiem == null || isNaN(pdRaw)) ? POLICY.perDiem : pdRaw;
-    const pdDaysRaw = Number(form.pdDays);
-    const pdDays = isNaN(pdDaysRaw) ? 0 : pdDaysRaw;
-    if (pdDays > 0 && pd > 0) {
-      rows.push(["Living allowance (per diem)", pd, pdDays, pd * pdDays]);
-      total += pd * pdDays;
-    }
-
-    // Table
-    const itemW = CW * 0.58;
-    const amtX = M + itemW;
-    const qtyX = amtX + 22;
-    const totX = qtyX + 16;
-
-    // Header
-    doc.setFillColor(...TH);
-    doc.roundedRect(M, y - 4, CW, 7, 1, 1, "F");
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(8.5);
-    doc.setTextColor(...GOLD);
-    doc.text("ITEM", M + 3, y);
-    doc.text("AMOUNT", amtX + 2, y);
-    doc.text("QTY", qtyX + 2, y);
-    doc.text("TOTAL", totX + 2, y);
-    y += 6;
-
-    // Rows
-    doc.setFontSize(9);
-    rows.forEach((row, i) => {
-      doc.setFont("helvetica", "normal");
-      const lines = wrapText(doc, row[0], itemW - 8);
-      const rowH = Math.max(lines.length * 4.5 + 3, 7.5);
-
-      y = checkPage(doc, y, W, H, rowH + 5);
-
-      if (i % 2 === 1) {
-        doc.setFillColor(...TA);
-        doc.rect(M, y - 4, CW, rowH, "F");
-      }
-
-      doc.setTextColor(...CREAM);
-      lines.forEach((line, li) => doc.text(line, M + 3, y + li * 4.5));
-      doc.text("$" + Number(row[1]).toLocaleString(), amtX + 2, y);
-      doc.text(String(row[2]), qtyX + 2, y);
-      doc.text("$" + Number(row[3]).toLocaleString(), totX + 2, y);
-      y += rowH;
-    });
-
-    // Total
-    y += 1;
-    doc.setFillColor(...GOLD);
-    doc.roundedRect(M, y - 4.5, CW, 9, 1, 1, "F");
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(11);
-    doc.setTextColor(...BG);
-    doc.text("TOTAL INVOICE", M + 3, y);
-    const ts = "$" + Number(total).toLocaleString();
-    doc.text(ts, totX + 2, y);
-    doc.setFontSize(7.5);
-    doc.text("GST excl", totX + 2 + doc.getTextWidth(ts) + 2, y);
-
-    y += 14;
-
-    // Conditions
-    y = checkPage(doc, y, W, H, 40);
-    doc.setDrawColor(...DIV);
-    doc.setLineWidth(0.2);
-    doc.line(M, y, W - M, y);
-    y += 7;
-
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(11);
-    doc.setTextColor(...GOLD);
-    doc.text("Conditions", M, y);
-    y += 7;
-
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(9);
-    doc.setTextColor(...DIM);
-    [
-      "Upon acceptance of this offer, a tour schedule and charts will be prepared and distributed.",
-      "Fees are payable within 14 days of the invoice date, following the performance.",
-      "Superannuation contributions will be made at " + (form.superRate || Math.round(POLICY.superRate * 100)) + "% of performance and rehearsal fees to the nominated fund.",
-      "Please add the living allowance (per diem) to your invoice.",
-    ].forEach((c) => {
-      wrapText(doc, c, CW - 4).forEach((cl) => { doc.text(cl, M, y); y += 4.5; });
-      y += 1;
-    });
-
-    // Transport
-    y += 2;
-    y = checkPage(doc, y, W, H, 35);
-    doc.setDrawColor(...DIV);
-    doc.line(M, y, W - M, y);
-    y += 7;
-
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(11);
-    doc.setTextColor(...GOLD);
-    doc.text("Transport & Accommodation", M, y);
-    y += 7;
-
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(9);
-    doc.setTextColor(...DIM);
-
-    const tLines = [];
-    if (form.transportType === "interstate_provided") tLines.push("If you are travelling interstate, travel is provided.");
-    else if (form.transportType === "flights_accom") tLines.push("Where interstate travel is required, flights and accommodation are provided.");
-    else if (form.transportType === "travel_provided") tLines.push("Travel is provided.");
-    if (form.reimbursementCap && form.reimbursementItems) {
-      tLines.push("A reimbursement of up to $" + form.reimbursementCap + " will be provided for " + form.reimbursementItems + " upon receipt of proof of payment.");
-      tLines.push("Travel reimbursements are handled separately and cannot be included in the fee.");
-    }
-    if (form.hasAccommodation && form.transportType !== "flights_accom") tLines.push(form.accommodationNote || "Accommodation is provided where an overnight stay is required.");
-
-    tLines.forEach((l) => {
-      wrapText(doc, l, CW - 4).forEach((tl) => { doc.text(tl, M, y); y += 4.5; });
-      y += 1;
-    });
-
-    // Invoice to
-    y += 2;
-    y = checkPage(doc, y, W, H, 25);
-    doc.setDrawColor(...DIV);
-    doc.line(M, y, W - M, y);
-    y += 7;
-
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(11);
-    doc.setTextColor(...GOLD);
-    doc.text("Invoice To", M, y);
-    y += 7;
-
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(10);
-    doc.setTextColor(...CREAM);
-    doc.text("Jiindahood Pty Ltd", M, y);
-    y += 5;
-    doc.setTextColor(...DIM);
-    doc.text("ABN: 61 663 395 364", M, y);
-
-    // Bottom bar on all pages
-    const pageCount = doc.internal.getNumberOfPages();
-    for (let p = 1; p <= pageCount; p++) {
-      doc.setPage(p);
-      doc.setFillColor(...GOLD);
-      doc.rect(0, H - 3, W, 3, "F");
-    }
-
-    return new NextResponse(doc.output("arraybuffer"), {
-      headers: {
-        "Content-Type": "application/pdf",
-        "Content-Disposition": "attachment; filename=rate-card.pdf",
-      },
-    });
+    return rateCardPdf(body.form);
   } catch (error) {
     console.error("PDF error:", error);
     return NextResponse.json({ error: "PDF generation failed" }, { status: 500 });

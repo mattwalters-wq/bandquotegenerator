@@ -225,7 +225,9 @@ export default function MainApp() {
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = "Emma_Donovan_-_Rate_Card_-_" + form.shows.map((s) => s.engagement || "Untitled").join("_").replace(/\s+/g, "_") + ".pdf";
+      const titles = [...new Set(form.shows.map((s) => (s.engagement || "").trim()).filter(Boolean))];
+      const titlePart = titles.length ? titles.join(", ") : "Rate Card";
+      a.download = "Emma Donovan - Rate Card - " + titlePart + ".pdf";
       document.body.appendChild(a); a.click(); document.body.removeChild(a);
       URL.revokeObjectURL(url);
     } catch (e) { alert("PDF export failed."); }
