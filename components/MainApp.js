@@ -31,9 +31,11 @@ export default function MainApp() {
   const [rightPanel, setRightPanel] = useState("preview"); // preview | email
   const [exporting, setExporting] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [chatMessages, setChatMessages] = useState([{ role: "assistant", content: "Hey! I'm here to help you create rate cards for Emma's band. You can describe a show, paste in details, or upload file content and I'll set up the rate card for you.\n\nTry something like: \"Ben Edgar is doing Parrtjima Festival in Alice Springs April 17 as Emma + 3, plus Booderee National Park May 2 as a duo with MD duties.\"" }]);
+  const [chatMessages, setChatMessages] = useState([{ role: "assistant", content: "Hey! I'm here to help you create rate cards for Emma's band. Describe a show, paste in details, or use the paperclip to upload an existing rate card PDF and ask for tweaks - I'll set the form up for you.\n\nTry something like: \"Ben Edgar is doing Parrtjima Festival in Alice Springs April 17 as Emma + 3, plus Booderee National Park May 2 as a duo with MD duties.\" Or upload an old card and say \"same again but add an extra hour\"." }]);
   const [chatInput, setChatInput] = useState("");
   const [chatLoading, setChatLoading] = useState(false);
+  const [attachment, setAttachment] = useState(null); // { kind, name, media_type?, data?|text? }
+  const fileInputRef = useRef(null);
   const [emailData, setEmailData] = useState({ subject: "", body: "" });
   const [copied, setCopied] = useState(false);
   const chatEndRef = useRef(null);
@@ -163,12 +165,40 @@ export default function MainApp() {
   };
 
   // Chat
+  const handleFilePick = (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    // Base64 adds ~35%; Vercel serverless caps request bodies at 4.5 MB.
+    if (file.size > 3 * 1024 * 1024) { alert("File is too large - max 3 MB."); return; }
+    const isText = file.type.startsWith("text/") || /\.(txt|md|csv)$/i.test(file.name);
+    const isImage = ["image/png", "image/jpeg", "image/webp", "image/gif"].includes(file.type);
+    const isPdf = file.type === "application/pdf" || /\.pdf$/i.test(file.name);
+    if (!isPdf && !isImage && !isText) { alert("Please upload a PDF, image or text file."); return; }
+    const reader = new FileReader();
+    if (isText) {
+      reader.onload = () => setAttachment({ kind: "text", name: file.name, text: String(reader.result).slice(0, 50000) });
+      reader.readAsText(file);
+    } else {
+      reader.onload = () => {
+        const data = String(reader.result).split(",")[1];
+        setAttachment(isPdf ? { kind: "pdf", name: file.name, data } : { kind: "image", name: file.name, media_type: file.type, data });
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
   const sendChat = async () => {
-    if (!chatInput.trim() || chatLoading) return;
-    const userMsg = { role: "user", content: chatInput.trim() };
+    if ((!chatInput.trim() && !attachment) || chatLoading) return;
+    const userMsg = {
+      role: "user",
+      content: chatInput.trim() || "Here is an existing rate card - please read it and set up the form.",
+      ...(attachment ? { attachment } : {}),
+    };
     const newMessages = [...chatMessages, userMsg];
     setChatMessages(newMessages);
     setChatInput("");
+    setAttachment(null);
     setChatLoading(true);
 
     try {
@@ -298,7 +328,14 @@ export default function MainApp() {
                       color: msg.role === "user" ? COLORS.onGold : COLORS.cream,
                       fontSize: 13, lineHeight: 1.5, whiteSpace: "pre-wrap",
                       border: msg.role === "assistant" ? "1px solid " + COLORS.border : "none",
-                    }}>{msg.content}</div>
+                    }}>
+                      {msg.attachment && (
+                        <div style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "4px 10px", borderRadius: 8, marginBottom: 6, fontSize: 11.5, fontWeight: 600, background: msg.role === "user" ? "rgba(0,0,0,0.15)" : COLORS.bgInput, border: "1px solid " + (msg.role === "user" ? "transparent" : COLORS.border) }}>
+                          <span aria-hidden="true">&#128206;</span> {msg.attachment.name}
+                        </div>
+                      )}
+                      {msg.content}
+                    </div>
                   </div>
                 ))}
                 {chatLoading && (
@@ -308,20 +345,33 @@ export default function MainApp() {
                 )}
                 <div ref={chatEndRef} />
               </div>
-              <div style={{ padding: "12px 18px", borderTop: "1px solid " + COLORS.border, display: "flex", gap: 8 }}>
-                <textarea
-                  value={chatInput}
-                  onChange={(e) => setChatInput(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendChat(); } }}
-                  placeholder="Describe shows, paste details, or ask questions..."
-                  rows={2}
-                  style={{ ...iS, resize: "none", flex: 1 }}
-                />
-                <button onClick={sendChat} disabled={chatLoading} style={{
-                  padding: "0 18px", borderRadius: 8, border: "none", cursor: chatLoading ? "wait" : "pointer",
-                  background: COLORS.gold, color: COLORS.onGold, fontWeight: 700, fontSize: 13, fontFamily: FONTS.body,
-                  opacity: chatLoading ? 0.5 : 1, alignSelf: "flex-end", height: 38,
-                }}>Send</button>
+              <div style={{ padding: "12px 18px", borderTop: "1px solid " + COLORS.border }}>
+                {attachment && (
+                  <div style={{ display: "inline-flex", alignItems: "center", gap: 8, padding: "5px 10px", borderRadius: 8, marginBottom: 8, fontSize: 12, fontWeight: 600, background: COLORS.bgCard, border: "1px solid " + COLORS.gold, color: COLORS.cream }}>
+                    <span aria-hidden="true">&#128206;</span> {attachment.name}
+                    <button onClick={() => setAttachment(null)} aria-label="Remove attachment" style={{ border: "none", background: "transparent", color: COLORS.creamDim, cursor: "pointer", fontSize: 14, lineHeight: 1, padding: 0 }}>&times;</button>
+                  </div>
+                )}
+                <div style={{ display: "flex", gap: 8 }}>
+                  <input ref={fileInputRef} type="file" accept=".pdf,.png,.jpg,.jpeg,.webp,.gif,.txt,.md,.csv,application/pdf,image/*,text/plain" onChange={handleFilePick} style={{ display: "none" }} />
+                  <button onClick={() => fileInputRef.current?.click()} title="Upload a rate card (PDF, image or text)" aria-label="Upload a file" style={{
+                    width: 38, height: 38, borderRadius: 8, border: "1px solid " + COLORS.border, cursor: "pointer",
+                    background: "transparent", color: COLORS.creamDim, fontSize: 16, alignSelf: "flex-end", flexShrink: 0,
+                  }}>&#128206;</button>
+                  <textarea
+                    value={chatInput}
+                    onChange={(e) => setChatInput(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendChat(); } }}
+                    placeholder={attachment ? "What would you like changed? e.g. add an extra hour..." : "Describe shows, paste details, or upload a rate card..."}
+                    rows={2}
+                    style={{ ...iS, resize: "none", flex: 1 }}
+                  />
+                  <button onClick={sendChat} disabled={chatLoading} style={{
+                    padding: "0 18px", borderRadius: 8, border: "none", cursor: chatLoading ? "wait" : "pointer",
+                    background: COLORS.gold, color: COLORS.onGold, fontWeight: 700, fontSize: 13, fontFamily: FONTS.body,
+                    opacity: chatLoading ? 0.5 : 1, alignSelf: "flex-end", height: 38,
+                  }}>Send</button>
+                </div>
               </div>
             </div>
           )}

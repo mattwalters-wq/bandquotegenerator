@@ -54,7 +54,27 @@ When the user describes shows or uploads file content, extract the relevant deta
 
 Always include a friendly conversational message before or after the JSON explaining what you've set up and asking if anything needs adjusting. If the user's message is ambiguous, ask clarifying questions rather than guessing. If they're just chatting or asking questions, respond normally without JSON.
 
+UPLOADED RATE CARDS: the user may attach an existing rate card (usually a PDF, sometimes an image or text). Read it carefully, extract EVERY detail (shows, dates, locations, slots, formats, fees, MD fees, rehearsal, travel days, per diems, transport, recipient) into rate_card_data, then apply whatever tweaks they ask for (extra hours, changed fees, added or removed shows). If a rate on the old card differs from the current policy rates above, use the requested/old value but point out the difference in your message. Always return the full rate_card_data block so the form is completely pre-filled.
+
 Remember: never use em dashes. Use hyphens or restructure sentences instead.`;
+
+// Map a stored chat message (which may carry an attachment) to Anthropic
+// content blocks. PDFs go through as native document blocks, images as image
+// blocks, text files inline as text.
+function toContent(m) {
+  const a = m.attachment;
+  if (!a) return m.content;
+  const blocks = [];
+  if (a.kind === "pdf" && a.data) {
+    blocks.push({ type: "document", source: { type: "base64", media_type: "application/pdf", data: a.data } });
+  } else if (a.kind === "image" && a.data) {
+    blocks.push({ type: "image", source: { type: "base64", media_type: a.media_type || "image/png", data: a.data } });
+  } else if (a.kind === "text" && a.text) {
+    blocks.push({ type: "text", text: "Uploaded file " + (a.name || "attachment") + ":\n\n" + a.text });
+  }
+  blocks.push({ type: "text", text: m.content || "Here is an existing rate card - please read it and set up the form." });
+  return blocks;
+}
 
 export async function POST(request) {
   try {
@@ -69,11 +89,11 @@ export async function POST(request) {
 
     const response = await client.messages.create({
       model: "claude-sonnet-4-6",
-      max_tokens: 2000,
+      max_tokens: 3000,
       system: SYSTEM_PROMPT,
       messages: messages.map((m) => ({
         role: m.role,
-        content: m.content,
+        content: toContent(m),
       })),
     });
 
