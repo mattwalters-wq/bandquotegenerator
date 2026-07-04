@@ -52,7 +52,9 @@ When the user describes shows or uploads file content, extract the relevant deta
 }
 </rate_card_data>
 
-Always include a friendly conversational message before or after the JSON explaining what you've set up and asking if anything needs adjusting. If the user's message is ambiguous, ask clarifying questions rather than guessing. If they're just chatting or asking questions, respond normally without JSON.
+CRITICAL - THE BLOCK IS THE ONLY THING THAT UPDATES THE FORM. Your words do nothing on their own: the app parses ONLY the <rate_card_data> block. Any time you are setting up, changing, confirming or "fixing" the card in ANY way - even a one-field tweak - you MUST include the complete <rate_card_data> block in that same message. Never say you have made, applied or fixed a change without the block in the SAME message. The block must always be the ENTIRE card (all shows and all fields), not just the changed parts, because it fully replaces the form. Only skip the block when you are purely answering a question or asking a clarifying question and deliberately changing nothing.
+
+Always include a friendly conversational message before or after the JSON explaining what you've set up and asking if anything needs adjusting. If the user's message is ambiguous, ask clarifying questions rather than guessing.
 
 UPLOADED RATE CARDS: the user may attach an existing rate card (usually a PDF, sometimes an image or text). Read it carefully, extract EVERY detail (shows, dates, locations, slots, formats, fees, MD fees, rehearsal, travel days, per diems, transport, recipient) into rate_card_data, then apply whatever tweaks they ask for (extra hours, changed fees, added or removed shows). If a rate on the old card differs from the current policy rates above, use the requested/old value but point out the difference in your message. Always return the full rate_card_data block so the form is completely pre-filled.
 
@@ -76,6 +78,66 @@ function toContent(m) {
   return blocks;
 }
 
+// Pull the rate card JSON out of the model's reply, tolerating the common
+// slip-ups: proper <rate_card_data> tags, a ```json code fence, or a bare JSON
+// object containing "shows". Whichever form matched is stripped from the
+// display text so raw JSON never shows in the chat.
+function extractRateCard(text) {
+  // 1. The requested format.
+  const tagged = text.match(/<rate_card_data>([\s\S]*?)<\/rate_card_data>/);
+  if (tagged) {
+    try {
+      return {
+        rateCardData: JSON.parse(tagged[1].trim()),
+        displayText: text.replace(/<rate_card_data>[\s\S]*?<\/rate_card_data>/g, "").trim(),
+      };
+    } catch (e) { console.error("Failed to parse tagged rate card data:", e); }
+  }
+
+  // 2. A fenced code block that looks like the card.
+  const fenced = text.match(/```(?:json)?\s*(\{[\s\S]*?\})\s*```/);
+  if (fenced && fenced[1].includes('"shows"')) {
+    try {
+      return {
+        rateCardData: JSON.parse(fenced[1]),
+        displayText: text.replace(fenced[0], "").trim(),
+      };
+    } catch (e) { console.error("Failed to parse fenced rate card data:", e); }
+  }
+
+  // 3. A bare JSON object containing "shows" - find it by brace balancing.
+  const start = text.indexOf("{");
+  if (start !== -1 && text.includes('"shows"')) {
+    let depth = 0, inStr = false, esc = false;
+    for (let i = start; i < text.length; i++) {
+      const c = text[i];
+      if (esc) { esc = false; continue; }
+      if (c === "\\") { esc = true; continue; }
+      if (c === '"') { inStr = !inStr; continue; }
+      if (inStr) continue;
+      if (c === "{") depth++;
+      else if (c === "}") {
+        depth--;
+        if (depth === 0) {
+          const candidate = text.slice(start, i + 1);
+          if (candidate.includes('"shows"')) {
+            try {
+              return {
+                rateCardData: JSON.parse(candidate),
+                displayText: (text.slice(0, start) + text.slice(i + 1)).trim(),
+              };
+            } catch (e) { /* not valid JSON - give up on this path */ }
+          }
+          break;
+        }
+      }
+    }
+  }
+
+  // Nothing parseable - remove any dangling opening tag (truncation) for display.
+  return { rateCardData: null, displayText: text.replace(/<rate_card_data>[\s\S]*$/, "").trim() };
+}
+
 export async function POST(request) {
   try {
     const apiKey = process.env.ANTHROPIC_API_KEY;
@@ -89,7 +151,7 @@ export async function POST(request) {
 
     const response = await client.messages.create({
       model: "claude-sonnet-4-6",
-      max_tokens: 3000,
+      max_tokens: 4096,
       system: SYSTEM_PROMPT,
       messages: messages.map((m) => ({
         role: m.role,
@@ -102,21 +164,16 @@ export async function POST(request) {
       .map((block) => block.text)
       .join("\n");
 
-    // Extract rate card data if present
-    let rateCardData = null;
-    const match = text.match(/<rate_card_data>([\s\S]*?)<\/rate_card_data>/);
-    if (match) {
-      try {
-        rateCardData = JSON.parse(match[1].trim());
-      } catch (e) {
-        console.error("Failed to parse rate card data:", e);
-      }
+    const { rateCardData, displayText } = extractRateCard(text);
+
+    // If the reply was cut off before the JSON completed, the form was NOT
+    // updated - say so instead of failing silently.
+    let finalText = displayText;
+    if (!rateCardData && response.stop_reason === "max_tokens") {
+      finalText = (displayText + "\n\n(That reply was cut short, so the form was NOT updated. Please ask me to send the card again.)").trim();
     }
 
-    // Clean the display text (remove the JSON tags)
-    const displayText = text.replace(/<rate_card_data>[\s\S]*?<\/rate_card_data>/, "").trim();
-
-    return NextResponse.json({ text: displayText, rateCardData });
+    return NextResponse.json({ text: finalText, rateCardData });
   } catch (error) {
     console.error("Chat API error:", error);
     return NextResponse.json({ error: "Chat failed: " + error.message }, { status: 500 });
