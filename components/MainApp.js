@@ -31,7 +31,7 @@ export default function MainApp() {
   const [rightPanel, setRightPanel] = useState("preview"); // preview | email
   const [exporting, setExporting] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [chatMessages, setChatMessages] = useState([{ role: "assistant", content: "Hey! I'm here to help you create rate cards for Emma's band. Describe a show, paste in details, or use the paperclip to upload an existing rate card PDF and ask for tweaks - I'll set the form up for you.\n\nTry something like: \"Ben Edgar is doing Parrtjima Festival in Alice Springs April 17 as Emma + 3, plus Booderee National Park May 2 as a duo with MD duties.\" Or upload an old card and say \"same again but add an extra hour\"." }]);
+  const [chatMessages, setChatMessages] = useState([{ role: "assistant", content: "Hey! I'm here to help you create rate cards for Emma's band. Describe a show, paste in details, or just drag an existing rate card PDF into this chat and ask for tweaks - I'll set the form up for you.\n\nTry something like: \"Ben Edgar is doing Parrtjima Festival in Alice Springs April 17 as Emma + 3, plus Booderee National Park May 2 as a duo with MD duties.\" Or upload an old card and say \"same again but add an extra hour\"." }]);
   const [chatInput, setChatInput] = useState("");
   const [chatLoading, setChatLoading] = useState(false);
   const [attachment, setAttachment] = useState(null); // { kind, name, media_type?, data?|text? }
@@ -164,10 +164,8 @@ export default function MainApp() {
     });
   };
 
-  // Chat
-  const handleFilePick = (e) => {
-    const file = e.target.files?.[0];
-    e.target.value = "";
+  // Chat - shared file intake for the paperclip, drag & drop, and paste.
+  const processFile = (file) => {
     if (!file) return;
     // Base64 adds ~35%; Vercel serverless caps request bodies at 4.5 MB.
     if (file.size > 3 * 1024 * 1024) { alert("File is too large - max 3 MB."); return; }
@@ -186,6 +184,28 @@ export default function MainApp() {
       };
       reader.readAsDataURL(file);
     }
+  };
+  const handleFilePick = (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    processFile(file);
+  };
+  // Drag & drop over the whole chat panel. A depth counter stops the overlay
+  // flickering when the drag moves across child elements.
+  const dragDepth = useRef(0);
+  const [dragging, setDragging] = useState(false);
+  const onDragEnter = (e) => { e.preventDefault(); dragDepth.current += 1; setDragging(true); };
+  const onDragOver = (e) => { e.preventDefault(); };
+  const onDragLeave = (e) => { e.preventDefault(); dragDepth.current -= 1; if (dragDepth.current <= 0) { dragDepth.current = 0; setDragging(false); } };
+  const onDrop = (e) => {
+    e.preventDefault();
+    dragDepth.current = 0;
+    setDragging(false);
+    processFile(e.dataTransfer?.files?.[0]);
+  };
+  const onPaste = (e) => {
+    const file = Array.from(e.clipboardData?.files || [])[0];
+    if (file) { e.preventDefault(); processFile(file); }
   };
 
   const sendChat = async () => {
@@ -318,7 +338,21 @@ export default function MainApp() {
         <div style={{ width: 400, flexShrink: 0, overflow: "auto", borderRight: "1px solid " + COLORS.border, background: COLORS.bgDeep, display: "flex", flexDirection: "column" }}>
 
           {activePanel === "chat" && (
-            <div style={{ flex: 1, display: "flex", flexDirection: "column" }}>
+            <div
+              onDragEnter={onDragEnter} onDragOver={onDragOver} onDragLeave={onDragLeave} onDrop={onDrop}
+              style={{ flex: 1, display: "flex", flexDirection: "column", position: "relative" }}
+            >
+              {dragging && (
+                <div style={{
+                  position: "absolute", inset: 8, zIndex: 5, borderRadius: 14, pointerEvents: "none",
+                  border: "2px dashed " + COLORS.gold, background: "rgba(212,160,74,0.08)",
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                }}>
+                  <span style={{ background: COLORS.bgCard, border: "1px solid " + COLORS.gold, color: COLORS.gold, fontWeight: 700, fontSize: 13, padding: "10px 18px", borderRadius: 10 }}>
+                    Drop your rate card here
+                  </span>
+                </div>
+              )}
               <div style={{ flex: 1, overflow: "auto", padding: "16px 18px" }}>
                 {chatMessages.map((msg, i) => (
                   <div key={i} style={{ marginBottom: 14, display: "flex", justifyContent: msg.role === "user" ? "flex-end" : "flex-start" }}>
@@ -362,7 +396,8 @@ export default function MainApp() {
                     value={chatInput}
                     onChange={(e) => setChatInput(e.target.value)}
                     onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendChat(); } }}
-                    placeholder={attachment ? "What would you like changed? e.g. add an extra hour..." : "Describe shows, paste details, or upload a rate card..."}
+                    onPaste={onPaste}
+                    placeholder={attachment ? "What would you like changed? e.g. add an extra hour..." : "Describe shows, drag in a rate card, or paste details..."}
                     rows={2}
                     style={{ ...iS, resize: "none", flex: 1 }}
                   />
