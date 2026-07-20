@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { jsPDF } from "jspdf";
 import { POLICY } from "@/lib/policy";
+import { buildRows } from "@/lib/constants";
 
 // Clean, light, editorial document - warm white paper, dark brown ink, a
 // restrained gold accent. Far more professional (and printable) than a dark fill.
@@ -107,24 +108,10 @@ function rateCardPdf(form) {
     y += 5;
   });
 
-  // Fee breakdown
-  const rows = [];
-  let total = 0;
-  shows.forEach((show, i) => {
-    const fee = Number(show.performanceFee) || POLICY.showFee.interstate;
-    const label = multiShow
-      ? show.activity + " fee - " + (show.engagement || "Show " + (i + 1)) + " (" + (show.performanceDate || "TBD") + ")"
-      : show.activity + " fee";
-    rows.push([label, fee, 1, fee]); total += fee;
-    if (show.hasMdFee) { const md = Number(show.mdFee) || POLICY.mdFee.halfDay; rows.push([multiShow ? "Music Director - " + (show.engagement || "Show " + (i + 1)) : "Music Director fee", md, 1, md]); total += md; }
-  });
-  if (form.hasRehearsalFee) { const rh = Number(form.rehearsalFee) || POLICY.rehearsal.halfDay; rows.push(["Rehearsal" + (form.rehearsalNote ? " - " + form.rehearsalNote : ""), rh, 1, rh]); total += rh; }
-  if (form.hasTravelDay) { const td = POLICY.travelDay; const days = Number(form.travelDays) || 1; rows.push(["Travel day", td, days, td * days]); total += td * days; }
-  const pdRaw = Number(form.perDiem);
-  const pd = (form.perDiem === "" || form.perDiem == null || isNaN(pdRaw)) ? POLICY.perDiem : pdRaw;
-  const pdDaysRaw = Number(form.pdDays);
-  const pdDays = isNaN(pdDaysRaw) ? 0 : pdDaysRaw;
-  if (pdDays > 0 && pd > 0) { rows.push(["Living allowance (per diem)", pd, pdDays, pd * pdDays]); total += pd * pdDays; }
+  // Fee breakdown - assembled by the same buildRows as the live preview, so
+  // the PDF can never disagree with the app (single source of line-item truth).
+  const { rows: rowObjs, total, superAmount } = buildRows(form);
+  const rows = rowObjs.map((r) => [r.item, r.amount, r.qty, r.total]);
 
   y = checkPage(doc, y, W, H, 30);
   y = heading(doc, "Fee Breakdown", M, W, y);
@@ -170,7 +157,7 @@ function rateCardPdf(form) {
   const conditions = [
     "Upon acceptance of this offer, a tour schedule and charts will be prepared and distributed.",
     "Fees are payable within 14 days of the invoice date, following the performance.",
-    "Superannuation contributions will be made at " + (form.superRate || Math.round(POLICY.superRate * 100)) + "% of performance and rehearsal fees to the nominated fund.",
+    "Superannuation contributions will be made at " + (form.superRate || Math.round(POLICY.superRate * 100)) + "% of performance and rehearsal fees" + (superAmount > 0 ? " (" + money(superAmount) + ")" : "") + " to the nominated fund.",
     "Please add the living allowance (per diem) to your invoice.",
   ];
   y = checkPage(doc, y, W, H, 40);
