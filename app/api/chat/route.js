@@ -39,18 +39,21 @@ When the user describes shows or uploads file content, extract the relevant deta
       "feeType": "interstate",
       "performanceFee": 550,
       "hasMdFee": false,
-      "mdFee": 225
+      "mdFee": 225,
+      "hasRehearsal": false,
+      "rehearsalHours": "",
+      "rehearsalFee": 0
     }
   ],
   "recipientName": "Ben",
-  "hasTravelDay": false,
-  "travelDays": 1,
   "pdDays": 1,
   "transportType": "interstate_provided",
   "reimbursementItems": "Ubers or parking",
   "hasAccommodation": true
 }
 </rate_card_data>
+
+ITINERARY LINE ITEMS: every day is its own entry in "shows". Travel days are entries with "activity": "Travel Day" and "performanceFee": ${POLICY.travelDay}; off days are "activity": "Off Day" with "performanceFee": 0. NEVER use hasTravelDay/travelDays fields or any rolled-up travel line - each travel day is itemised individually. A rehearsal on a show day goes on that show's entry via "hasRehearsal": true, "rehearsalHours" (display only, e.g. "2") and "rehearsalFee" (flat dollars, set per booking, not from policy). Superannuation applies to performance and rehearsal fees only - never to Travel Day or Off Day fees.
 
 CRITICAL - THE BLOCK IS THE ONLY THING THAT UPDATES THE FORM. Your words do nothing on their own: the app parses ONLY the <rate_card_data> block. Any time you are setting up, changing, confirming or "fixing" the card in ANY way - even a one-field tweak - you MUST include the complete <rate_card_data> block in that same message. Never say you have made, applied or fixed a change without the block in the SAME message. The block must always be the ENTIRE card (all shows and all fields), not just the changed parts, because it fully replaces the form. Only skip the block when you are purely answering a question or asking a clarifying question and deliberately changing nothing.
 

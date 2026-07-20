@@ -6,10 +6,11 @@ import { useTheme, getSessionId } from "@/lib/useTheme";
 import QuickQuote from "@/components/QuickQuote";
 import { computePlayerTravel, computePlayerTravelFromAI } from "@/lib/itinerary";
 import { CAPITALS } from "@/lib/travelData";
+import { POLICY, formatTripDate } from "@/lib/policy";
 import {
   DEFAULT_VALUES, INITIAL_FORM, EMPTY_SHOW,
   SLOT_OPTIONS, FORMAT_OPTIONS, ACTIVITY_OPTIONS,
-  TRANSPORT_OPTIONS, REIMBURSEMENT_OPTIONS,
+  TRANSPORT_OPTIONS, REIMBURSEMENT_OPTIONS, isNonPlaying,
   formatCurrency, buildRows, buildTransportLines, generateEmail,
 } from "@/lib/constants";
 
@@ -91,8 +92,9 @@ export default function MainApp() {
     setComputingTravel(true);
     setTravelMeta(null);
     try {
-      const showDates = form.shows.map((s) => toISO(s.performanceDate)).filter(Boolean).sort();
-      const destination = form.shows[0]?.location || "";
+      const playingShows = form.shows.filter((s) => !isNonPlaying(s.activity));
+      const showDates = playingShows.map((s) => toISO(s.performanceDate)).filter(Boolean).sort();
+      const destination = playingShows[0]?.location || "";
       const input = { homeBase: form.homeBase || "Melbourne", destination, showDates, soundcheckTime: form.soundcheck || "3:00pm", soundcheckProvided: !!form.soundcheck };
       if (!showDates.length || !destination) {
         setTravelMeta({ reasons: [], assumptions: [{ text: "Add a location and a parseable show date to compute travel days.", assumed: false }] });
@@ -106,7 +108,17 @@ export default function MainApp() {
         if (data.estimate) res = computePlayerTravelFromAI(input, data.estimate);
         else { setTravelMeta({ reasons: [], assumptions: [{ text: "Could not estimate travel automatically - enter travel days manually.", assumed: false }] }); setComputingTravel(false); return; }
       }
-      setForm((prev) => ({ ...prev, hasTravelDay: res.travelDays > 0, travelDays: res.travelDays, pdDays: res.nights || prev.pdDays, travelComputed: true, travelManual: false }));
+      // Sync itemised Travel Day engagements (the sole source of travel-day fee
+      // lines): replace previously auto-generated ones with the fresh set.
+      setForm((prev) => {
+        const kept = prev.shows.filter((s) => !s.autoTravel);
+        const travelShows = (res.reasons || []).map((r) => ({
+          ...EMPTY_SHOW, autoTravel: true, activity: "Travel Day", engagement: "Travel day",
+          performanceDate: formatTripDate(r.date), performanceFee: POLICY.travelDay,
+          feeType: "custom", slot: "Day",
+        }));
+        return { ...prev, shows: [...kept, ...travelShows], hasTravelDay: false, travelDays: res.travelDays, pdDays: res.nights ?? prev.pdDays, travelComputed: true, travelManual: false };
+      });
       setTravelMeta({ reasons: res.reasons, assumptions: res.assumptions });
     } catch (e) {
       setTravelMeta({ reasons: [], assumptions: [{ text: "Travel calculation failed: " + e.message, assumed: false }] });
@@ -149,6 +161,11 @@ export default function MainApp() {
       if (field === "feeType") {
         if (value === "local") updated.performanceFee = DEFAULT_VALUES.localFee;
         else if (value === "interstate") updated.performanceFee = DEFAULT_VALUES.interstateFee;
+      }
+      if (field === "activity") {
+        // Non-playing days get sensible default fees from policy.
+        if (value === "Travel Day") { updated.performanceFee = POLICY.travelDay; updated.feeType = "custom"; }
+        else if (value === "Off Day") { updated.performanceFee = 0; updated.feeType = "custom"; }
       }
       shows[idx] = updated;
       return { ...prev, shows };
@@ -260,7 +277,25 @@ export default function MainApp() {
       setSaved((prev) => [{ id: Date.now(), name, form_data: form, created_at: new Date().toISOString() }, ...prev]);
     }
   };
-  const handleLoad = (entry) => { setForm({ ...INITIAL_FORM, ...entry.form_data }); setActivePanel("editor"); };
+  const handleLoad = (entry) => {
+    const fd = { ...INITIAL_FORM, ...entry.form_data };
+    // Migrate legacy cards: the rolled-up "Travel day x N" line is gone, so
+    // convert old hasTravelDay/travelDays flags into itemised Travel Day
+    // engagements (unless the card already itemises them). Totals are preserved.
+    const n = Number(fd.travelDays) || 0;
+    if (fd.hasTravelDay && n > 0 && !(fd.shows || []).some((s) => s.activity === "Travel Day")) {
+      fd.shows = [
+        ...(fd.shows || []),
+        ...Array.from({ length: n }, () => ({
+          ...EMPTY_SHOW, activity: "Travel Day", engagement: "Travel day",
+          performanceFee: POLICY.travelDay, feeType: "custom", slot: "Day",
+        })),
+      ];
+    }
+    fd.hasTravelDay = false;
+    setForm(fd);
+    setActivePanel("editor");
+  };
   const handleDelete = async (id) => { if (supabase) await supabase.from("rate_cards").delete().eq("id", id); setSaved((prev) => prev.filter((s) => s.id !== id)); };
   const handleReset = () => setForm(INITIAL_FORM);
 
@@ -290,7 +325,7 @@ export default function MainApp() {
   const handleMailto = () => { window.open("mailto:?subject=" + encodeURIComponent(emailData.subject) + "&body=" + encodeURIComponent(emailData.body)); };
 
   // Preview data
-  const { rows, total } = buildRows(form);
+  const { rows, total, superAmount } = buildRows(form);
   const transportLines = buildTransportLines(form);
 
   const isPro = view === "pro";
@@ -441,8 +476,19 @@ export default function MainApp() {
                   <FG label="Repertoire"><input style={iS} value={show.repertoire} onChange={(e) => updateShow(idx, "repertoire", e.target.value)} placeholder="e.g. Take Me To The River" /></FG>
                   <FG label="Fee Type"><select style={sS} value={show.feeType || "interstate"} onChange={(e) => updateShow(idx, "feeType", e.target.value)}><option value="local">Local ($450)</option><option value="interstate">Interstate ($550)</option><option value="custom">Custom</option></select></FG>
                   <FG label="Fee"><input type="number" style={iS} value={show.performanceFee} onChange={(e) => updateShow(idx, "performanceFee", e.target.value)} /></FG>
-                  <label style={cL}><input type="checkbox" checked={show.hasMdFee} onChange={(e) => updateShow(idx, "hasMdFee", e.target.checked)} /> Music Director fee</label>
-                  {show.hasMdFee && <FG label="MD Fee"><input type="number" style={iS} value={show.mdFee} onChange={(e) => updateShow(idx, "mdFee", e.target.value)} /></FG>}
+                  {!isNonPlaying(show.activity) && (
+                    <>
+                      <label style={cL}><input type="checkbox" checked={show.hasMdFee} onChange={(e) => updateShow(idx, "hasMdFee", e.target.checked)} /> Music Director fee</label>
+                      {show.hasMdFee && <FG label="MD Fee"><input type="number" style={iS} value={show.mdFee} onChange={(e) => updateShow(idx, "mdFee", e.target.value)} /></FG>}
+                      <label style={cL}><input type="checkbox" checked={!!show.hasRehearsal} onChange={(e) => updateShow(idx, "hasRehearsal", e.target.checked)} /> Rehearsal on this day</label>
+                      {show.hasRehearsal && (
+                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                          <FG label="Rehearsal Hours"><input style={iS} value={show.rehearsalHours || ""} onChange={(e) => updateShow(idx, "rehearsalHours", e.target.value)} placeholder="e.g. 2" /></FG>
+                          <FG label="Rehearsal Fee ($)"><input type="number" style={iS} value={show.rehearsalFee || ""} onChange={(e) => updateShow(idx, "rehearsalFee", e.target.value)} placeholder="e.g. 200" /></FG>
+                        </div>
+                      )}
+                    </>
+                  )}
                 </div>
               ))}
 
@@ -468,8 +514,7 @@ export default function MainApp() {
                   ))}
                 </div>
               )}
-              <label style={cL}><input type="checkbox" checked={form.hasTravelDay} onChange={(e) => update("hasTravelDay", e.target.checked)} /> Travel day(s)</label>
-              {form.hasTravelDay && <FG label={"Travel Days" + (form.travelManual ? " (manual)" : form.travelComputed ? " (computed)" : "")}><input type="number" style={iS} value={form.travelDays} onChange={(e) => { update("travelDays", e.target.value); if (form.travelComputed) update("travelManual", true); }} min={1} max={10} /></FG>}
+              <p style={{ fontSize: 10.5, color: COLORS.creamFaint, margin: "6px 0 8px", lineHeight: 1.5 }}>Travel days are itemised as their own engagements above (activity "Travel Day") - computed here or added manually. No rolled-up travel line is used.</p>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
                 <FG label="Per Diem"><input type="number" style={iS} value={form.perDiem} onChange={(e) => update("perDiem", e.target.value)} min={0} /></FG>
                 <FG label="PD Days (0 to remove)"><input type="number" style={iS} value={form.pdDays} onChange={(e) => update("pdDays", e.target.value)} min={0} max={10} /></FG>
@@ -562,7 +607,7 @@ export default function MainApp() {
             </div>
           ) : (
             <div style={{ maxWidth: 580, borderRadius: 10, overflow: "hidden", boxShadow: "0 4px 24px rgba(0,0,0,0.4)" }}>
-              <PreviewCard form={form} rows={rows} total={total} transportLines={transportLines} />
+              <PreviewCard form={form} rows={rows} total={total} superAmount={superAmount} transportLines={transportLines} />
             </div>
           )}
         </div>
@@ -573,7 +618,7 @@ export default function MainApp() {
 }
 
 // Preview component
-function PreviewCard({ form, rows, total, transportLines }) {
+function PreviewCard({ form, rows, total, superAmount, transportLines }) {
   const multiShow = form.shows.length > 1;
   return (
     <div style={{ background: COLORS.bgCard, color: COLORS.cream, fontFamily: FONTS.body, minHeight: 600 }}>
@@ -625,7 +670,7 @@ function PreviewCard({ form, rows, total, transportLines }) {
         <PH>Conditions</PH>
         <CT>Upon acceptance, a tour schedule and charts will be prepared and distributed.</CT>
         <CT>Fees payable within 14 days of invoice date, following the performance.</CT>
-        <CT>Super at {form.superRate}% of performance and rehearsal fees to nominated fund.</CT>
+        <CT>Super at {form.superRate}% of performance and rehearsal fees{superAmount > 0 ? " (" + formatCurrency(superAmount) + ")" : ""} to nominated fund.</CT>
         <CT>Please add living allowance (per diem) to your invoice.</CT>
 
         <div style={{ height: 1, background: COLORS.border, margin: "12px 0" }} />
