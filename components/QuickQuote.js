@@ -1,7 +1,8 @@
 "use client";
 import { useState, useMemo, useEffect, useRef } from "react";
 import { COLORS, FONTS } from "@/lib/theme";
-import { LOCATION_CLASSES, LINEUPS, locationClass, formatTripDate } from "@/lib/policy";
+import { LOCATION_CLASSES, locationClass, formatTripDate } from "@/lib/policy";
+import { getArtist, lineupsFor } from "@/lib/artists";
 import { computePlayerTravel, computePlayerTravelFromAI } from "@/lib/itinerary";
 import { buildQuoteSnapshot, travelWordsSummary, quoteEmail } from "@/lib/quote";
 import { CAPITALS } from "@/lib/travelData";
@@ -23,7 +24,9 @@ const CITY_PICKS = [
   { name: "Byron Bay", cls: "regional" },
 ];
 
-export default function QuickQuote() {
+export default function QuickQuote({ artistKey = "emma" }) {
+  const artist = getArtist(artistKey);
+  const LINEUPS = lineupsFor(artist);
   const [locationText, setLocationText] = useState("");
   const [clsKey, setClsKey] = useState("capital");
   const [gateway, setGateway] = useState("Sydney");
@@ -105,6 +108,7 @@ export default function QuickQuote() {
   const travelSummary = travelWordsSummary(perBase);
 
   const snapshot = useMemo(() => buildQuoteSnapshot({
+    artistKey: artist.key,
     locationClass: clsKey,
     locationLabel: locationText.trim() || cls.label,
     showDate: showDate ? formatTripDate(showDate) : "",
@@ -114,7 +118,7 @@ export default function QuickQuote() {
       assumptions: mel?.assumptions || [],
       perBase, manual: isManual || nightsManual, summary: travelSummary,
     },
-  }), [clsKey, locationText, showDate, travelDays, nights, lineupKey, mel, isManual, nightsManual, travelSummary]);
+  }), [artist.key, clsKey, locationText, showDate, travelDays, nights, lineupKey, mel, isManual, nightsManual, travelSummary]);
 
   // --- input handlers ---
   const applyClass = (key) => {
@@ -153,7 +157,7 @@ export default function QuickQuote() {
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = "Emma Donovan - Band Quote - " + (snapshot.trip.locationLabel || "Quote") + ".pdf";
+      a.download = artist.name + " - Band Quote - " + (snapshot.trip.locationLabel || "Quote") + ".pdf";
       document.body.appendChild(a); a.click(); document.body.removeChild(a);
       URL.revokeObjectURL(url);
     } catch (e) { alert("PDF export failed."); }

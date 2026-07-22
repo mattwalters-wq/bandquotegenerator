@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { jsPDF } from "jspdf";
 import { POLICY } from "@/lib/policy";
 import { buildRows } from "@/lib/constants";
+import { getArtist } from "@/lib/artists";
+import { snapshotArtist } from "@/lib/quote";
 
 // Clean, light, editorial document - warm white paper, dark brown ink, a
 // restrained gold accent. Far more professional (and printable) than a dark fill.
@@ -33,13 +35,13 @@ function frame(doc, W, H) {
   doc.setFillColor(...GOLD); doc.rect(0, 0, W, 2.2, "F"); // slim brand rule
 }
 
-function footer(doc, W, H) {
+function footer(doc, W, H, artistName) {
   const pages = doc.internal.getNumberOfPages();
   for (let p = 1; p <= pages; p++) {
     doc.setPage(p);
     doc.setDrawColor(...RULE); doc.setLineWidth(0.2); doc.line(22, H - 12, W - 22, H - 12);
     doc.setFont("helvetica", "normal"); doc.setFontSize(7.5); doc.setTextColor(...FAINT);
-    doc.text("Emma Donovan", 22, H - 8);
+    doc.text(artistName || "Emma Donovan", 22, H - 8);
     doc.text(p + " / " + pages, W - 22, H - 8, { align: "right" });
   }
 }
@@ -71,6 +73,7 @@ function detailRow(doc, M, y, label, value) {
 // Rate card (fee offer) PDF
 // ---------------------------------------------------------------------------
 function rateCardPdf(form) {
+  const artist = getArtist(form && form.artist);
   const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
   const W = doc.internal.pageSize.getWidth();
   const H = doc.internal.pageSize.getHeight();
@@ -84,7 +87,7 @@ function rateCardPdf(form) {
 
   // Masthead
   doc.setFont("times", "bold"); doc.setFontSize(28); doc.setTextColor(...INK);
-  doc.text("Emma Donovan", M, y);
+  doc.text(artist.name, M, y);
   y += 7;
   doc.setFont("helvetica", "normal"); doc.setFontSize(9); doc.setTextColor(...FAINT);
   doc.setCharSpace(1.2);
@@ -186,11 +189,11 @@ function rateCardPdf(form) {
   y = checkPage(doc, y, W, H, 24);
   y = heading(doc, "Invoice To", M, W, y);
   doc.setFont("helvetica", "bold"); doc.setFontSize(10); doc.setTextColor(...INK);
-  doc.text("Jiindahood Pty Ltd", M, y); y += 5;
+  doc.text(artist.invoiceTo, M, y); y += 5;
   doc.setFont("helvetica", "normal"); doc.setTextColor(...SOFT);
-  doc.text("ABN: 61 663 395 364", M, y);
+  doc.text("ABN: " + artist.abn, M, y);
 
-  footer(doc, W, H);
+  footer(doc, W, H, artist.name);
   return respond(doc, "rate-card");
 }
 
@@ -211,6 +214,7 @@ function bulletList(doc, M, W, H, y, items) {
 // Band Quote PDF (from the Quick Quote snapshot)
 // ---------------------------------------------------------------------------
 function quotePdf(q) {
+  const artist = snapshotArtist(q);
   const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
   const W = doc.internal.pageSize.getWidth();
   const H = doc.internal.pageSize.getHeight();
@@ -220,7 +224,7 @@ function quotePdf(q) {
   let y = 24;
 
   doc.setFont("times", "bold"); doc.setFontSize(28); doc.setTextColor(...INK);
-  doc.text("Emma Donovan", M, y);
+  doc.text(artist.name, M, y);
   y += 7;
   doc.setFont("helvetica", "normal"); doc.setFontSize(9); doc.setTextColor(...FAINT);
   doc.setCharSpace(1.2); doc.text("BAND QUOTE", M, y); doc.setCharSpace(0);
@@ -290,10 +294,10 @@ function quotePdf(q) {
   y = heading(doc, "Not included", M, W, y);
   y = bulletList(doc, M, W, H, y, [
     "Flights, accommodation and backline are not included in this number.",
-    "Emma's own performance fee (" + money(q.emmaFeeReference) + "/show) sits in the P&L and is not part of the band cost. Figures exclude GST (added only for GST-registered musicians).",
+    (artist.artistFee ? artist.shortName + "'s own performance fee (" + money(artist.artistFee) + "/show) sits in the P&L and is not part of the band cost. " : "") + "Figures exclude GST (added only for GST-registered musicians).",
   ]);
 
-  footer(doc, W, H);
+  footer(doc, W, H, artist.name);
   return respond(doc, "band-quote");
 }
 

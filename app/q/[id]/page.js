@@ -4,6 +4,7 @@ import { supabase } from "@/lib/supabase";
 import { COLORS, FONTS } from "@/lib/theme";
 import { useTheme } from "@/lib/useTheme";
 import QuoteResult from "@/components/QuoteResult";
+import { snapshotArtist } from "@/lib/quote";
 
 export default function SharedQuotePage({ params }) {
   const { id } = params;
@@ -35,7 +36,7 @@ export default function SharedQuotePage({ params }) {
         padding: "16px 18px", borderBottom: "1px solid " + COLORS.border, maxWidth: 680, margin: "0 auto",
       }}>
         <div>
-          <h1 style={{ fontFamily: FONTS.display, fontSize: 18, fontWeight: 700, margin: 0, color: COLORS.cream }}>Emma Donovan</h1>
+          <h1 style={{ fontFamily: FONTS.display, fontSize: 18, fontWeight: 700, margin: 0, color: COLORS.cream }}>{snapshot ? snapshotArtist(snapshot).name : "Band Quote"}</h1>
           <p style={{ fontSize: 11, color: COLORS.creamFaint, letterSpacing: 1.2, textTransform: "uppercase", margin: 0 }}>Band quote</p>
         </div>
         <button onClick={toggle} aria-label="Toggle theme" style={{

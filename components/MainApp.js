@@ -7,10 +7,11 @@ import QuickQuote from "@/components/QuickQuote";
 import { computePlayerTravel, computePlayerTravelFromAI } from "@/lib/itinerary";
 import { CAPITALS } from "@/lib/travelData";
 import { POLICY, formatTripDate } from "@/lib/policy";
+import { ARTISTS, getArtist, DEFAULT_ARTIST } from "@/lib/artists";
 import {
   DEFAULT_VALUES, INITIAL_FORM, EMPTY_SHOW,
   SLOT_OPTIONS, FORMAT_OPTIONS, ACTIVITY_OPTIONS,
-  TRANSPORT_OPTIONS, REIMBURSEMENT_OPTIONS, isNonPlaying,
+  TRANSPORT_OPTIONS, REIMBURSEMENT_OPTIONS, isNonPlaying, formatOptionsFor,
   formatCurrency, buildRows, buildTransportLines, generateEmail,
 } from "@/lib/constants";
 
@@ -23,6 +24,7 @@ const smallBtn = { padding: "4px 10px", borderRadius: 6, border: "1px solid " + 
 export default function MainApp() {
   const { theme, toggle: toggleTheme } = useTheme();
   const [view, setView] = useState("quick"); // quick (Emma mode) | pro (manager tools)
+  const [artistKey, setArtistKey] = useState(DEFAULT_ARTIST); // emma | sarah
   const [form, setForm] = useState(INITIAL_FORM);
   const [saved, setSaved] = useState([]);
   const [members, setMembers] = useState([]);
@@ -134,11 +136,17 @@ export default function MainApp() {
     (async () => {
       try {
         let saved = localStorage.getItem("bqg_view");
+        let savedArtist = localStorage.getItem("bqg_artist");
         if (supabase) {
-          const { data } = await supabase.from("session_prefs").select("view").eq("session_id", sid).single();
+          const { data } = await supabase.from("session_prefs").select("view, artist").eq("session_id", sid).single();
           if (data?.view) saved = data.view;
+          if (data?.artist) savedArtist = data.artist;
         }
         if (saved === "pro" || saved === "quick") setView(saved);
+        if (savedArtist && ARTISTS[savedArtist]) {
+          setArtistKey(savedArtist);
+          setForm((prev) => ({ ...prev, artist: savedArtist }));
+        }
       } catch (e) { /* default stays quick */ }
     })();
   }, []);
@@ -152,6 +160,19 @@ export default function MainApp() {
       supabase.from("session_prefs").upsert({ session_id: sid, view: next, updated_at: new Date().toISOString() }).then(() => {}, () => {});
     }
   };
+
+  // Toggle between artists; the current card follows the toggle.
+  const changeArtist = (next) => {
+    if (!ARTISTS[next]) return;
+    setArtistKey(next);
+    setForm((prev) => ({ ...prev, artist: next }));
+    const sid = getSessionId();
+    try { localStorage.setItem("bqg_artist", next); } catch (e) {}
+    if (supabase && sid) {
+      supabase.from("session_prefs").upsert({ session_id: sid, artist: next, updated_at: new Date().toISOString() }).then(() => {}, () => {});
+    }
+  };
+  const artist = getArtist(artistKey);
 
   const update = (field, value) => setForm((prev) => ({ ...prev, [field]: value }));
   const updateShow = (idx, field, value) => {
@@ -242,7 +263,7 @@ export default function MainApp() {
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: newMessages.filter((m) => m.role !== "system") }),
+        body: JSON.stringify({ messages: newMessages.filter((m) => m.role !== "system"), artist: artistKey }),
       });
       const data = await res.json();
       if (data.error) throw new Error(data.error);
@@ -293,6 +314,8 @@ export default function MainApp() {
       ];
     }
     fd.hasTravelDay = false;
+    if (!ARTISTS[fd.artist]) fd.artist = "emma";
+    setArtistKey(fd.artist);
     setForm(fd);
     setActivePanel("editor");
   };
@@ -312,7 +335,7 @@ export default function MainApp() {
       a.href = url;
       const titles = [...new Set(form.shows.map((s) => (s.engagement || "").trim()).filter(Boolean))];
       const titlePart = titles.length ? titles.join(", ") : "Rate Card";
-      a.download = "Emma Donovan - Rate Card - " + titlePart + ".pdf";
+      a.download = artist.name + " - Rate Card - " + titlePart + ".pdf";
       document.body.appendChild(a); a.click(); document.body.removeChild(a);
       URL.revokeObjectURL(url);
     } catch (e) { alert("PDF export failed."); }
@@ -334,9 +357,19 @@ export default function MainApp() {
     <div style={{ display: "flex", flexDirection: "column", height: "100vh", background: COLORS.bgDeep, fontFamily: FONTS.body, color: COLORS.cream }}>
       {/* Header */}
       <div style={{ background: COLORS.bgDeep, borderBottom: "1px solid " + COLORS.border, padding: "12px 18px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexShrink: 0, flexWrap: "wrap" }}>
-        <div style={{ display: "flex", alignItems: "baseline", gap: 10 }}>
-          <h1 style={{ fontFamily: FONTS.display, fontSize: 19, fontWeight: 700, margin: 0, color: COLORS.cream }}>Emma Donovan</h1>
-          <span style={{ fontSize: 10.5, color: COLORS.creamFaint, letterSpacing: 1.4, textTransform: "uppercase" }}>Band quotes</span>
+        <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+          <div style={{ display: "flex", alignItems: "baseline", gap: 10 }}>
+            <h1 style={{ fontFamily: FONTS.display, fontSize: 19, fontWeight: 700, margin: 0, color: COLORS.cream }}>{artist.name}</h1>
+            <span style={{ fontSize: 10.5, color: COLORS.creamFaint, letterSpacing: 1.4, textTransform: "uppercase" }}>Band quotes</span>
+          </div>
+          <div style={{ display: "flex", background: COLORS.bgInput, borderRadius: 10, padding: 3, border: "1px solid " + COLORS.border }}>
+            {Object.values(ARTISTS).map((a) => (
+              <button key={a.key} onClick={() => changeArtist(a.key)} style={{
+                padding: "5px 12px", borderRadius: 8, border: "none", cursor: "pointer", fontSize: 12, fontWeight: 700, fontFamily: FONTS.body,
+                background: artistKey === a.key ? COLORS.gold : "transparent", color: artistKey === a.key ? COLORS.onGold : COLORS.creamDim,
+              }}>{a.shortName}</button>
+            ))}
+          </div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
           {/* Quick Quote / Pro segmented control */}
@@ -365,7 +398,7 @@ export default function MainApp() {
         </div>
       </div>
 
-      {!isPro && <QuickQuote />}
+      {!isPro && <QuickQuote key={artistKey} artistKey={artistKey} />}
 
       {isPro && (
       <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
@@ -471,7 +504,7 @@ export default function MainApp() {
                   <FG label="Date"><input style={iS} value={show.performanceDate} onChange={(e) => updateShow(idx, "performanceDate", e.target.value)} placeholder="e.g. July 10, 2026" /></FG>
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
                     <FG label="Slot"><select style={sS} value={show.slot} onChange={(e) => updateShow(idx, "slot", e.target.value)}>{SLOT_OPTIONS.map((s) => <option key={s} value={s}>{s}</option>)}</select></FG>
-                    <FG label="Format"><select style={sS} value={show.format} onChange={(e) => updateShow(idx, "format", e.target.value)}>{FORMAT_OPTIONS.map((f) => <option key={f} value={f}>{f}</option>)}</select></FG>
+                    <FG label="Format"><select style={sS} value={show.format} onChange={(e) => updateShow(idx, "format", e.target.value)}>{formatOptionsFor(artistKey).map((f) => <option key={f} value={f}>{f}</option>)}</select></FG>
                   </div>
                   <FG label="Repertoire"><input style={iS} value={show.repertoire} onChange={(e) => updateShow(idx, "repertoire", e.target.value)} placeholder="e.g. Take Me To The River" /></FG>
                   <FG label="Fee Type"><select style={sS} value={show.feeType || "interstate"} onChange={(e) => updateShow(idx, "feeType", e.target.value)}><option value="local">Local ($450)</option><option value="interstate">Interstate ($550)</option><option value="custom">Custom</option></select></FG>
@@ -607,7 +640,7 @@ export default function MainApp() {
             </div>
           ) : (
             <div style={{ maxWidth: 580, borderRadius: 10, overflow: "hidden", boxShadow: "0 4px 24px rgba(0,0,0,0.4)" }}>
-              <PreviewCard form={form} rows={rows} total={total} superAmount={superAmount} transportLines={transportLines} />
+              <PreviewCard form={form} artist={artist} rows={rows} total={total} superAmount={superAmount} transportLines={transportLines} />
             </div>
           )}
         </div>
@@ -618,13 +651,13 @@ export default function MainApp() {
 }
 
 // Preview component
-function PreviewCard({ form, rows, total, superAmount, transportLines }) {
+function PreviewCard({ form, artist, rows, total, superAmount, transportLines }) {
   const multiShow = form.shows.length > 1;
   return (
     <div style={{ background: COLORS.bgCard, color: COLORS.cream, fontFamily: FONTS.body, minHeight: 600 }}>
       <div style={{ height: 5, background: COLORS.gold }} />
       <div style={{ padding: "24px 28px 32px" }}>
-        <h1 style={{ fontFamily: FONTS.display, fontSize: 24, fontWeight: 700, margin: 0, color: COLORS.cream }}>Emma Donovan</h1>
+        <h1 style={{ fontFamily: FONTS.display, fontSize: 24, fontWeight: 700, margin: 0, color: COLORS.cream }}>{artist.name}</h1>
         <p style={{ color: COLORS.creamDim, fontSize: 12, margin: "4px 0 0", letterSpacing: 0.5 }}>
           Fee Offer - {multiShow ? form.shows.length + " Engagements" : "Engagement"}
         </p>
@@ -679,8 +712,8 @@ function PreviewCard({ form, rows, total, superAmount, transportLines }) {
 
         <div style={{ height: 1, background: COLORS.border, margin: "12px 0" }} />
         <PH>Invoice To</PH>
-        <p style={{ color: COLORS.cream, fontSize: 11, margin: "4px 0 2px" }}>Jiindahood Pty Ltd</p>
-        <p style={{ color: COLORS.creamDim, fontSize: 11, margin: 0 }}>ABN: 61 663 395 364</p>
+        <p style={{ color: COLORS.cream, fontSize: 11, margin: "4px 0 2px" }}>{artist.invoiceTo}</p>
+        <p style={{ color: COLORS.creamDim, fontSize: 11, margin: 0 }}>ABN: {artist.abn}</p>
       </div>
       <div style={{ height: 3, background: COLORS.gold }} />
     </div>
