@@ -113,7 +113,7 @@ function rateCardPdf(form) {
 
   // Fee breakdown - assembled by the same buildRows as the live preview, so
   // the PDF can never disagree with the app (single source of line-item truth).
-  const { rows: rowObjs, total, superAmount } = buildRows(form);
+  const { rows: rowObjs, total, superAmount, superMode } = buildRows(form);
   const rows = rowObjs.map((r) => [r.item, r.amount, r.qty, r.total]);
 
   y = checkPage(doc, y, W, H, 30);
@@ -160,7 +160,9 @@ function rateCardPdf(form) {
   const conditions = [
     "Upon acceptance of this offer, a tour schedule and charts will be prepared and distributed.",
     "Fees are payable within 14 days of the invoice date, following the performance.",
-    "Superannuation contributions will be made at " + (form.superRate || Math.round(POLICY.superRate * 100)) + "% of performance and rehearsal fees" + (superAmount > 0 ? " (" + money(superAmount) + ")" : "") + " to the nominated fund.",
+    superMode === "inclusive"
+      ? "All fees are inclusive of superannuation."
+      : "Superannuation contributions will be made at " + (form.superRate || Math.round(POLICY.superRate * 100)) + "% of performance and rehearsal fees" + (superAmount > 0 ? " (" + money(superAmount) + ")" : "") + " to the nominated fund.",
     "Please add the living allowance (per diem) to your invoice.",
   ];
   y = checkPage(doc, y, W, H, 40);
@@ -294,6 +296,7 @@ function quotePdf(q) {
   y = heading(doc, "Not included", M, W, y);
   y = bulletList(doc, M, W, H, y, [
     "Flights, accommodation and backline are not included in this number.",
+    ...(artist.superMode === "inclusive" ? ["All fees are inclusive of superannuation."] : []),
     (artist.artistFee ? artist.shortName + "'s own performance fee (" + money(artist.artistFee) + "/show) sits in the P&L and is not part of the band cost. " : "") + "Figures exclude GST (added only for GST-registered musicians).",
   ]);
 
