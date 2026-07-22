@@ -122,6 +122,7 @@ export default function QuoteResult({ snapshot, onSelectLineup, actions }) {
 
       {/* Artist fee reference */}
       <p style={{ fontSize: 12, color: COLORS.creamFaint, margin: "12px 2px 0", lineHeight: 1.6 }}>
+        {artist.superMode === "inclusive" ? "All fees are inclusive of superannuation. " : ""}
         {artist.artistFee ? "For reference, " + artist.shortName + "'s own performance fee of " + money(artist.artistFee) + " per show sits in the P&L and is not part of the band cost above. " : ""}
         Figures exclude GST (added only for GST-registered musicians).
       </p>

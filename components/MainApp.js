@@ -7,7 +7,7 @@ import QuickQuote from "@/components/QuickQuote";
 import { computePlayerTravel, computePlayerTravelFromAI } from "@/lib/itinerary";
 import { CAPITALS } from "@/lib/travelData";
 import { POLICY, formatTripDate } from "@/lib/policy";
-import { ARTISTS, getArtist, DEFAULT_ARTIST } from "@/lib/artists";
+import { ARTISTS, getArtist, effectiveRates, DEFAULT_ARTIST } from "@/lib/artists";
 import {
   DEFAULT_VALUES, INITIAL_FORM, EMPTY_SHOW,
   SLOT_OPTIONS, FORMAT_OPTIONS, ACTIVITY_OPTIONS,
@@ -184,15 +184,23 @@ export default function MainApp() {
         else if (value === "interstate") updated.performanceFee = DEFAULT_VALUES.interstateFee;
       }
       if (field === "activity") {
-        // Non-playing days get sensible default fees from policy.
+        // Non-playing days get sensible default fees from policy; artists with
+        // their own defaults (Sarah) also pre-fill rehearsal fees.
+        const d = effectiveRates(artistKey).defaults;
         if (value === "Travel Day") { updated.performanceFee = POLICY.travelDay; updated.feeType = "custom"; }
         else if (value === "Off Day") { updated.performanceFee = 0; updated.feeType = "custom"; }
+        else if (value === "Rehearsal" && d) { updated.performanceFee = d.rehearsalFee; updated.feeType = "custom"; }
+        else if (value === "Performance" && d) { updated.performanceFee = d.showFee; updated.feeType = "custom"; }
       }
       shows[idx] = updated;
       return { ...prev, shows };
     });
   };
-  const addShow = () => setForm((prev) => ({ ...prev, shows: [...prev.shows, { ...EMPTY_SHOW }] }));
+  const newShow = () => {
+    const d = effectiveRates(artistKey).defaults;
+    return d ? { ...EMPTY_SHOW, performanceFee: d.showFee, feeType: "custom" } : { ...EMPTY_SHOW };
+  };
+  const addShow = () => setForm((prev) => ({ ...prev, shows: [...prev.shows, newShow()] }));
   const removeShow = (idx) => setForm((prev) => prev.shows.length <= 1 ? prev : { ...prev, shows: prev.shows.filter((_, i) => i !== idx) });
   const duplicateShow = (idx) => {
     setForm((prev) => {
@@ -348,7 +356,7 @@ export default function MainApp() {
   const handleMailto = () => { window.open("mailto:?subject=" + encodeURIComponent(emailData.subject) + "&body=" + encodeURIComponent(emailData.body)); };
 
   // Preview data
-  const { rows, total, superAmount } = buildRows(form);
+  const { rows, total, superAmount, superMode } = buildRows(form);
   const transportLines = buildTransportLines(form);
 
   const isPro = view === "pro";
@@ -510,6 +518,9 @@ export default function MainApp() {
                   <FG label="Fee Type"><select style={sS} value={show.feeType || "interstate"} onChange={(e) => updateShow(idx, "feeType", e.target.value)}><option value="local">Local ($450)</option><option value="interstate">Interstate ($550)</option><option value="custom">Custom</option></select></FG>
                   <FG label="Fee"><input type="number" style={iS} value={show.performanceFee} onChange={(e) => updateShow(idx, "performanceFee", e.target.value)} /></FG>
                   {!isNonPlaying(show.activity) && (
+                    <FG label="Petrol Allowance ($, 0 for none)"><input type="number" style={iS} value={show.petrolFee || ""} onChange={(e) => updateShow(idx, "petrolFee", e.target.value)} placeholder="e.g. 50" /></FG>
+                  )}
+                  {!isNonPlaying(show.activity) && (
                     <>
                       <label style={cL}><input type="checkbox" checked={show.hasMdFee} onChange={(e) => updateShow(idx, "hasMdFee", e.target.checked)} /> Music Director fee</label>
                       {show.hasMdFee && <FG label="MD Fee"><input type="number" style={iS} value={show.mdFee} onChange={(e) => updateShow(idx, "mdFee", e.target.value)} /></FG>}
@@ -640,7 +651,7 @@ export default function MainApp() {
             </div>
           ) : (
             <div style={{ maxWidth: 580, borderRadius: 10, overflow: "hidden", boxShadow: "0 4px 24px rgba(0,0,0,0.4)" }}>
-              <PreviewCard form={form} artist={artist} rows={rows} total={total} superAmount={superAmount} transportLines={transportLines} />
+              <PreviewCard form={form} artist={artist} rows={rows} total={total} superAmount={superAmount} superMode={superMode} transportLines={transportLines} />
             </div>
           )}
         </div>
@@ -651,7 +662,7 @@ export default function MainApp() {
 }
 
 // Preview component
-function PreviewCard({ form, artist, rows, total, superAmount, transportLines }) {
+function PreviewCard({ form, artist, rows, total, superAmount, superMode, transportLines }) {
   const multiShow = form.shows.length > 1;
   return (
     <div style={{ background: COLORS.bgCard, color: COLORS.cream, fontFamily: FONTS.body, minHeight: 600 }}>
@@ -703,7 +714,9 @@ function PreviewCard({ form, artist, rows, total, superAmount, transportLines })
         <PH>Conditions</PH>
         <CT>Upon acceptance, a tour schedule and charts will be prepared and distributed.</CT>
         <CT>Fees payable within 14 days of invoice date, following the performance.</CT>
-        <CT>Super at {form.superRate}% of performance and rehearsal fees{superAmount > 0 ? " (" + formatCurrency(superAmount) + ")" : ""} to nominated fund.</CT>
+        {superMode === "inclusive"
+          ? <CT>All fees are inclusive of superannuation.</CT>
+          : <CT>Super at {form.superRate}% of performance and rehearsal fees{superAmount > 0 ? " (" + formatCurrency(superAmount) + ")" : ""} to nominated fund.</CT>}
         <CT>Please add living allowance (per diem) to your invoice.</CT>
 
         <div style={{ height: 1, background: COLORS.border, margin: "12px 0" }} />

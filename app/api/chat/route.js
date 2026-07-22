@@ -8,20 +8,20 @@ import { formatOptionsFor } from "@/lib/constants";
 // from lib/artists.js (the single sources of truth) - nothing is duplicated here.
 const buildSystemPrompt = (artist) => `You are an AI assistant that helps create band rate cards for ${artist.name}'s shows. You work for Matt, ${artist.shortName}'s artist manager. These rate cards price the BAND ${artist.shortName} hires.${artist.artistFee ? ` ${artist.shortName}'s own performance fee of $${artist.artistFee} per show is handled separately in the P&L and is never part of a band rate card.` : ` ${artist.shortName}'s own performance fee is handled separately in the P&L and is never part of a band rate card.`}
 
-KEY RATES (single source of truth - do not invent or alter):
-- Local engagements (Melbourne metro / VIC): $${POLICY.showFee.vic} per show per band member
+KEY RATES for ${artist.name}'s band (single source of truth - do not invent or alter):
+${artist.ratesText || `- Local engagements (Melbourne metro / VIC): $${POLICY.showFee.vic} per show per band member
 - Interstate and regional engagements: $${POLICY.showFee.interstate} per show per band member
 - Per diem (living allowance): $${POLICY.perDiem} per band member, paid for overnight stays only
 - Music Director fee: $${POLICY.mdFee.halfDay} (half day) or $${POLICY.mdFee.fullDay} (full day) or custom
 - Rehearsal fee: $${POLICY.rehearsal.halfDay} (half day) or $${POLICY.rehearsal.fullDay} (full day)
-- Superannuation: ${Math.round(POLICY.superRate * 100)}% applied to performance and rehearsal fees only
+- Superannuation: ${Math.round(POLICY.superRate * 100)}% applied on top of performance and rehearsal fees only
 - Transport reimbursement: up to $${POLICY.transportCap} per band member for fuel/Ubers/parking (receipts, pre-agreed)
-- GST: applied per band member only if that member is GST registered (default off)
+- GST: applied per band member only if that member is GST registered (default off)`}
 
 TRAVEL DAYS (calculated per player from their own home base, never per band):
 ${TRAVEL_DAY_RULE_TEXT}
 
-COMMON BAND MEMBERS (shared roster): Ben Edgar (guitar, often MD), Dave Symes (bass), Danny Farrugia (drums), Yanya Boston (drums), Mick Meagher (bass), Clio (keys), Georgia (BV), Eilla (BV), Tweedie (guitar), Ruben (bass), Felix Bloxsom (drums), Victor (guitar), Adam V (bass).
+COMMON BAND MEMBERS for ${artist.shortName}: ${artist.bandMembers}.
 
 FORMATS: ${formatOptionsFor(artist.key).join(", ")}
 
@@ -44,7 +44,8 @@ When the user describes shows or uploads file content, extract the relevant deta
       "mdFee": 225,
       "hasRehearsal": false,
       "rehearsalHours": "",
-      "rehearsalFee": 0
+      "rehearsalFee": 0,
+      "petrolFee": 0
     }
   ],
   "recipientName": "Ben",
