@@ -54,6 +54,62 @@
   color-scheme: light;
 }
 
+/* ---------------------------------------------------------------------------
+   Sarah Grace Buckley brand theme - rose / blush palette ("girly" per brand).
+   Applied via data-artist="sarah" on <html>; Emma keeps the earth/gold default.
+   To match sarahgracebuckley.com exactly, swap the hex values in these two
+   blocks - every Sarah colour lives here and nowhere else.
+--------------------------------------------------------------------------- */
+[data-artist="sarah"] {
+  --bg-deep: #221019;
+  --bg-card: #2c1521;
+  --bg-input: #371b2a;
+  --bg-table: #301724;
+  --bg-table-alt: #3c1e2e;
+  --bg-table-head: #4a2539;
+
+  --gold: #e87ba8;        /* rose accent (replaces gold) */
+  --gold-light: #f2a9c6;
+  --gold-dim: #b25580;
+  --on-gold: #2a0f1c;
+
+  --cream: #faeef4;
+  --cream-dim: #dcbccb;
+  --cream-faint: #a17e8f;
+
+  --border: #452532;
+  --border-light: #593142;
+
+  --error: #d05a6e;
+
+  color-scheme: dark;
+}
+
+[data-theme="light"][data-artist="sarah"] {
+  --bg-deep: #fdf3f7;
+  --bg-card: #fffbfd;
+  --bg-input: #f8e6ee;
+  --bg-table: #fdf6f9;
+  --bg-table-alt: #f8e6ee;
+  --bg-table-head: #f3dbe6;
+
+  --gold: #c2497a;        /* deeper rose for contrast on blush paper */
+  --gold-light: #d76b96;
+  --gold-dim: #a03763;
+  --on-gold: #fffbfd;
+
+  --cream: #33141f;
+  --cream-dim: #6b4254;
+  --cream-faint: #a07f8d;
+
+  --border: #f0d5e1;
+  --border-light: #e4bfd1;
+
+  --error: #b0463a;
+
+  color-scheme: light;
+}
+
 html { background: var(--bg-deep); }
 body {
   background: var(--bg-deep);

@@ -5,15 +5,25 @@ import { buildRows } from "@/lib/constants";
 import { getArtist } from "@/lib/artists";
 import { snapshotArtist } from "@/lib/quote";
 
-// Clean, light, editorial document - warm white paper, dark brown ink, a
-// restrained gold accent. Far more professional (and printable) than a dark fill.
-const PAPER = [255, 253, 248];
-const INK = [38, 30, 22];
-const SOFT = [92, 79, 66];
-const FAINT = [150, 136, 120];
-const GOLD = [169, 118, 42];
-const RULE = [228, 217, 199];
-const ALT = [248, 243, 234];
+// Clean, light, editorial document. Per-artist palette: Emma keeps warm paper
+// with a restrained gold accent; Sarah gets blush paper with a rose accent
+// (brand direction - swap hexes here to match sarahgracebuckley.com exactly).
+const PALETTES = {
+  emma: {
+    PAPER: [255, 253, 248], INK: [38, 30, 22], SOFT: [92, 79, 66],
+    FAINT: [150, 136, 120], GOLD: [169, 118, 42], RULE: [228, 217, 199], ALT: [248, 243, 234],
+  },
+  sarah: {
+    PAPER: [255, 250, 252], INK: [51, 20, 31], SOFT: [107, 66, 84],
+    FAINT: [160, 127, 141], GOLD: [194, 73, 122], RULE: [240, 213, 225], ALT: [248, 230, 238],
+  },
+};
+let PAPER, INK, SOFT, FAINT, GOLD, RULE, ALT;
+function setPalette(key) {
+  const P = PALETTES[key] || PALETTES.emma;
+  ({ PAPER, INK, SOFT, FAINT, GOLD, RULE, ALT } = P);
+}
+setPalette("emma");
 
 const money = (n) => "$" + Number(n || 0).toLocaleString("en-AU", { maximumFractionDigits: 0 });
 
@@ -74,6 +84,7 @@ function detailRow(doc, M, y, label, value) {
 // ---------------------------------------------------------------------------
 function rateCardPdf(form) {
   const artist = getArtist(form && form.artist);
+  setPalette(artist.key);
   const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
   const W = doc.internal.pageSize.getWidth();
   const H = doc.internal.pageSize.getHeight();
@@ -217,6 +228,7 @@ function bulletList(doc, M, W, H, y, items) {
 // ---------------------------------------------------------------------------
 function quotePdf(q) {
   const artist = snapshotArtist(q);
+  setPalette(artist.key);
   const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
   const W = doc.internal.pageSize.getWidth();
   const H = doc.internal.pageSize.getHeight();

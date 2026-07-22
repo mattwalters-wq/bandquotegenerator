@@ -11,7 +11,7 @@ export const viewport = {
 };
 
 // Apply the saved theme before first paint to avoid a flash of the wrong colours.
-const themeInit = `(function(){try{var t=localStorage.getItem('bqg_theme')||'dark';document.documentElement.dataset.theme=t;}catch(e){document.documentElement.dataset.theme='dark';}})();`;
+const themeInit = `(function(){try{var t=localStorage.getItem('bqg_theme')||'dark';document.documentElement.dataset.theme=t;var a=localStorage.getItem('bqg_artist');if(a)document.documentElement.dataset.artist=a;}catch(e){document.documentElement.dataset.theme='dark';}})();`;
 
 export default function RootLayout({ children }) {
   return (
