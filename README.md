@@ -1,6 +1,9 @@
-# Emma Donovan - Band Quotes
+# Band Quotes - Emma Donovan & Sarah Grace Buckley
 
-Tool for pricing the band Emma hires for a show. Two modes:
+Tool for pricing the band the artist hires for a show. A header toggle switches
+between artists (identity, invoicing entity/ABN and the artist-fee reference
+live in `lib/artists.js`; band rates and rules are shared from `lib/policy.js`).
+Two modes:
 
 - **Quick Quote** (default) - the simple, mobile-first "Emma mode": pick where, when
   and the lineup, and see the all-in band cost for every lineup side by side, with a
@@ -52,10 +55,11 @@ alter table quotes enable row level security;
 create policy "Allow all access" on quotes
   for all using (true) with check (true);
 
--- View preference (Quick Quote vs Pro) per browser session
+-- View + artist preference per browser session
 create table session_prefs (
   session_id text primary key,
   view text not null default 'quick',
+  artist text not null default 'emma',
   updated_at timestamptz default now()
 );
 

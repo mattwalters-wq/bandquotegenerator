@@ -1,10 +1,12 @@
 import { NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 import { POLICY, TRAVEL_DAY_RULE_TEXT } from "@/lib/policy";
+import { getArtist } from "@/lib/artists";
+import { formatOptionsFor } from "@/lib/constants";
 
-// Rates AND the travel-day rule are injected from lib/policy.js (the single
-// source of truth) - nothing is duplicated or hand-edited here.
-const SYSTEM_PROMPT = `You are an AI assistant that helps create band rate cards for Emma Donovan's shows. You work for Matt, Emma's artist manager. These rate cards price the BAND Emma hires. Emma's own performance fee of $${POLICY.emmaFee} per show is handled separately in the P&L and is never part of a band rate card.
+// Rates AND the travel-day rule are injected from lib/policy.js, artist details
+// from lib/artists.js (the single sources of truth) - nothing is duplicated here.
+const buildSystemPrompt = (artist) => `You are an AI assistant that helps create band rate cards for ${artist.name}'s shows. You work for Matt, ${artist.shortName}'s artist manager. These rate cards price the BAND ${artist.shortName} hires.${artist.artistFee ? ` ${artist.shortName}'s own performance fee of $${artist.artistFee} per show is handled separately in the P&L and is never part of a band rate card.` : ` ${artist.shortName}'s own performance fee is handled separately in the P&L and is never part of a band rate card.`}
 
 KEY RATES (single source of truth - do not invent or alter):
 - Local engagements (Melbourne metro / VIC): $${POLICY.showFee.vic} per show per band member
@@ -19,9 +21,9 @@ KEY RATES (single source of truth - do not invent or alter):
 TRAVEL DAYS (calculated per player from their own home base, never per band):
 ${TRAVEL_DAY_RULE_TEXT}
 
-COMMON BAND MEMBERS: Ben Edgar (guitar, often MD), Dave Symes (bass), Danny Farrugia (drums), Yanya Boston (drums), Mick Meagher (bass), Clio (keys), Georgia (BV), Eilla (BV), Tweedie (guitar), Ruben (bass), Felix Bloxsom (drums), Victor (guitar), Adam V (bass).
+COMMON BAND MEMBERS (shared roster): Ben Edgar (guitar, often MD), Dave Symes (bass), Danny Farrugia (drums), Yanya Boston (drums), Mick Meagher (bass), Clio (keys), Georgia (BV), Eilla (BV), Tweedie (guitar), Ruben (bass), Felix Bloxsom (drums), Victor (guitar), Adam V (bass).
 
-FORMATS: Duo, Emma + 3, Full Band, Em Solo, Emma + 2
+FORMATS: ${formatOptionsFor(artist.key).join(", ")}
 
 When the user describes shows or uploads file content, extract the relevant details and respond with a JSON block that the app can use to pre-fill the rate card form. Format your JSON inside <rate_card_data> tags like this:
 
@@ -148,14 +150,15 @@ export async function POST(request) {
       return NextResponse.json({ error: "API key not configured" }, { status: 500 });
     }
 
-    const { messages } = await request.json();
+    const { messages, artist: artistKey } = await request.json();
+    const artist = getArtist(artistKey);
 
     const client = new Anthropic({ apiKey });
 
     const response = await client.messages.create({
       model: "claude-sonnet-4-6",
       max_tokens: 4096,
-      system: SYSTEM_PROMPT,
+      system: buildSystemPrompt(artist),
       messages: messages.map((m) => ({
         role: m.role,
         content: toContent(m),

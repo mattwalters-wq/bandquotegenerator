@@ -1,8 +1,8 @@
 import "./globals.css";
 
 export const metadata = {
-  title: "Emma Donovan - Band Quotes",
-  description: "Quick band quotes and rate cards for Emma Donovan's shows",
+  title: "Band Quotes - Emma Donovan & Sarah Grace Buckley",
+  description: "Quick band quotes and rate cards",
 };
 
 export const viewport = {

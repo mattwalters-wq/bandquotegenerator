@@ -19,8 +19,8 @@ export default function PasswordGate({ children }) {
     <div style={{ height: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: COLORS.bgDeep }}>
       <div style={{ background: COLORS.bgCard, borderRadius: 16, padding: "48px 40px", width: 380, border: "1px solid " + COLORS.border, boxShadow: "0 12px 40px rgba(0,0,0,0.5)" }}>
         <div style={{ textAlign: "center", marginBottom: 32 }}>
-          <h1 style={{ fontFamily: FONTS.display, fontSize: 28, fontWeight: 700, color: COLORS.cream, margin: "0 0 6px" }}>Emma Donovan</h1>
-          <p style={{ fontFamily: FONTS.body, fontSize: 13, color: COLORS.creamDim, letterSpacing: 1.5, textTransform: "uppercase" }}>Rate Card Generator</p>
+          <h1 style={{ fontFamily: FONTS.display, fontSize: 28, fontWeight: 700, color: COLORS.cream, margin: "0 0 6px" }}>Band Quotes</h1>
+          <p style={{ fontFamily: FONTS.body, fontSize: 13, color: COLORS.creamDim, letterSpacing: 1.5, textTransform: "uppercase" }}>Emma Donovan &middot; Sarah Grace Buckley</p>
         </div>
         <div style={{ display: "flex", gap: 8 }}>
           <input

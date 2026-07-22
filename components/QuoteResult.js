@@ -1,12 +1,14 @@
 "use client";
 import { COLORS, FONTS } from "@/lib/theme";
 import { money } from "@/lib/policy";
+import { snapshotArtist } from "@/lib/quote";
 
 // Presentational, read-only breakdown of a Quick Quote snapshot. Shared by the
 // interactive Quick Quote screen and the public /q/[id] share page.
 export default function QuoteResult({ snapshot, onSelectLineup, actions }) {
   if (!snapshot) return null;
-  const { trip, comparison, selected, summary, emmaFeeReference, travel } = snapshot;
+  const { trip, comparison, selected, summary, travel } = snapshot;
+  const artist = snapshotArtist(snapshot);
 
   return (
     <div style={{ maxWidth: 640, margin: "0 auto", width: "100%" }}>
@@ -58,7 +60,7 @@ export default function QuoteResult({ snapshot, onSelectLineup, actions }) {
       {selected.musicians === 0 ? (
         <div style={card}>
           <p style={{ fontSize: 14, color: COLORS.creamDim, margin: 0 }}>
-            A solo show hires no band, so there are no band fees here. Emma's own performance fee is handled in the P&L.
+            A solo show hires no band, so there are no band fees here. {artist.shortName}&apos;s own performance fee is handled in the P&L.
           </p>
         </div>
       ) : (
@@ -118,10 +120,10 @@ export default function QuoteResult({ snapshot, onSelectLineup, actions }) {
         </p>
       </div>
 
-      {/* Emma fee reference */}
+      {/* Artist fee reference */}
       <p style={{ fontSize: 12, color: COLORS.creamFaint, margin: "12px 2px 0", lineHeight: 1.6 }}>
-        For reference, Emma's own performance fee of {money(emmaFeeReference)} per show sits in the P&L and is not part of
-        the band cost above. Figures exclude GST (added only for GST-registered musicians).
+        {artist.artistFee ? "For reference, " + artist.shortName + "'s own performance fee of " + money(artist.artistFee) + " per show sits in the P&L and is not part of the band cost above. " : ""}
+        Figures exclude GST (added only for GST-registered musicians).
       </p>
 
       {actions ? <div style={{ marginTop: 22 }}>{actions}</div> : null}
