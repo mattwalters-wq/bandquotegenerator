@@ -15,6 +15,17 @@ import {
   formatCurrency, buildRows, buildTransportLines, generateEmail,
 } from "@/lib/constants";
 
+// Per-artist chat greeting (examples match each band's world).
+function greetingFor(key) {
+  const base = "Describe a show, paste in details, or just drag an existing rate card PDF into this chat and ask for tweaks - I'll set the form up for you.\n\n";
+  if (key === "sarah") {
+    return "Hey! I'm here to help you create rate cards for Sarah's band. " + base +
+      "Try something like: \"Jesse is doing the Launch Show on July 27 - $200 show fee plus $50 petrol, and two rehearsals at $100 each plus petrol.\"";
+  }
+  return "Hey! I'm here to help you create rate cards for Emma's band. " + base +
+    "Try something like: \"Ben Edgar is doing Parrtjima Festival in Alice Springs April 17 as Emma + 3, plus Booderee National Park May 2 as a duo with MD duties.\" Or upload an old card and say \"same again but add an extra hour\".";
+}
+
 // Shared styles
 const iS = { width: "100%", padding: "9px 12px", background: COLORS.bgInput, border: "1px solid " + COLORS.border, borderRadius: 8, color: COLORS.cream, fontSize: 13, outline: "none", boxSizing: "border-box", fontFamily: FONTS.body };
 const sS = { ...iS, appearance: "none", cursor: "pointer", paddingRight: 28, backgroundImage: "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23c4b8a8' d='M6 8L1 3h10z'/%3E%3C/svg%3E\")", backgroundRepeat: "no-repeat", backgroundPosition: "right 10px center" };
@@ -34,7 +45,7 @@ export default function MainApp() {
   const [rightPanel, setRightPanel] = useState("preview"); // preview | email
   const [exporting, setExporting] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [chatMessages, setChatMessages] = useState([{ role: "assistant", content: "Hey! I'm here to help you create rate cards for Emma's band. Describe a show, paste in details, or just drag an existing rate card PDF into this chat and ask for tweaks - I'll set the form up for you.\n\nTry something like: \"Ben Edgar is doing Parrtjima Festival in Alice Springs April 17 as Emma + 3, plus Booderee National Park May 2 as a duo with MD duties.\" Or upload an old card and say \"same again but add an extra hour\"." }]);
+  const [chatMessages, setChatMessages] = useState([{ role: "assistant", content: greetingFor(DEFAULT_ARTIST) }]);
   const [chatInput, setChatInput] = useState("");
   const [chatLoading, setChatLoading] = useState(false);
   const [attachment, setAttachment] = useState(null); // { kind, name, media_type?, data?|text? }
@@ -146,6 +157,7 @@ export default function MainApp() {
         if (savedArtist && ARTISTS[savedArtist]) {
           setArtistKey(savedArtist);
           setForm((prev) => ({ ...prev, artist: savedArtist }));
+          document.documentElement.dataset.artist = savedArtist;
         }
       } catch (e) { /* default stays quick */ }
     })();
@@ -166,6 +178,7 @@ export default function MainApp() {
     if (!ARTISTS[next]) return;
     setArtistKey(next);
     setForm((prev) => ({ ...prev, artist: next }));
+    document.documentElement.dataset.artist = next;
     const sid = getSessionId();
     try { localStorage.setItem("bqg_artist", next); } catch (e) {}
     if (supabase && sid) {
@@ -173,6 +186,11 @@ export default function MainApp() {
     }
   };
   const artist = getArtist(artistKey);
+
+  // If the chat is untouched, refresh the greeting when the artist changes.
+  useEffect(() => {
+    setChatMessages((prev) => prev.length <= 1 ? [{ role: "assistant", content: greetingFor(artistKey) }] : prev);
+  }, [artistKey]);
 
   const update = (field, value) => setForm((prev) => ({ ...prev, [field]: value }));
   const updateShow = (idx, field, value) => {
@@ -324,6 +342,7 @@ export default function MainApp() {
     fd.hasTravelDay = false;
     if (!ARTISTS[fd.artist]) fd.artist = "emma";
     setArtistKey(fd.artist);
+    document.documentElement.dataset.artist = fd.artist;
     setForm(fd);
     setActivePanel("editor");
   };

@@ -21,6 +21,7 @@ export default function SharedQuotePage({ params }) {
         if (!active) return;
         if (error || !data) { setStatus("missing"); return; }
         setSnapshot(data.data);
+        try { document.documentElement.dataset.artist = snapshotArtist(data.data).key; } catch (e) {}
         setStatus("ready");
       } catch (e) {
         if (active) setStatus("error");
